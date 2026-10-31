@@ -63,6 +63,10 @@ export interface Engine {
 }
 
 const IDLE = 80 // ms without wheel events that ends a wheel gesture
+/** Rows per px of accelerated mouse-wheel delta (macOS deltas are document pixels, far larger than rows). */
+const WHEEL_GAIN = 0.0018
+/** Coast retention for mouse-wheel flings (τ ≈ 100ms): it stops soon after the wheel does. */
+const WHEEL_DECAY = 0.99
 const TYPEAHEAD_RESET = 600
 
 export function createEngine(initialIndex: number, options: EngineOptions): Engine {
@@ -95,7 +99,9 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   const physics = () => ({ ...p, restDelta: 0.5 / dpr() })
 
   function setMode(m: Mode) {
-    if (m !== mode) o.onMode?.((mode = m))
+    if (m === mode) return
+    mode = m // not inside onMode?.(…): optional chaining would skip the assignment when there is no callback
+    o.onMode?.(m)
   }
 
   function render() {
@@ -152,8 +158,9 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   }
 
   /** Release at the current position with velocity `vel`: project, snap, glide. */
-  function fling(vel: number, at?: number) {
-    const r = release(raw, reduced ? 0 : vel, size(), bounds(), reduced ? { ...physics(), snapDuration: 200 } : physics())
+  function fling(vel: number, at?: number, decay?: number) {
+    const ph = decay ? { ...physics(), decay } : physics()
+    const r = release(raw, reduced ? 0 : vel, size(), bounds(), reduced ? { ...ph, snapDuration: 200 } : ph)
     target = r.index
     run(r, at)
   }
@@ -301,13 +308,16 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   }
 
   // ── Wheel & trackpad ────────────────────────────────────────────────────
-  // A wheel *gesture* is a run of events with gaps < IDLE. Its kind (notches vs smooth) and whether it
-  // is ours (its dominant axis matches the wheel's) are decided from its first event, so trackpad
-  // momentum keeps its classification, and a clearly cross-axis gesture is left to the page.
+  // A wheel *gesture* is a run of events with gaps < IDLE, classified once from its first event:
+  // - mouse (notches): it starts with a whole notch. macOS reports 12–13px per notch (and wheelDelta = −3 ×
+  //   delta, exactly like a trackpad, so that signal can't tell them apart); Windows 100px with wheelDelta
+  //   ±120; Firefox uses line mode. Trackpads always start at 1–3px, because fingers start slowly.
+  // - ours or the page's: its dominant axis must match the wheel's (mouse notches always drive the wheel).
   let wheelAt = -1e9
   let wheelTimer: ReturnType<typeof setTimeout> | undefined
   let notched = false
   let ours = false
+  let rate = 0
 
   function wheel(e: WheelEvent & { wheelDeltaX?: number; wheelDeltaY?: number }) {
     if (o.disabled) return
@@ -315,28 +325,42 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     const x = Math.abs(e.deltaX) > Math.abs(e.deltaY)
     const d = x ? e.deltaX : e.deltaY
     if (!d) return
-    if (e.timeStamp - wheelAt > IDLE) {
-      const wd = x ? e.wheelDeltaX : e.wheelDeltaY
+    const a = Math.abs(d)
+    const wd = x ? e.wheelDeltaX : e.wheelDeltaY
+    const classic = e.deltaMode !== 0 || (!!wd && wd % 120 === 0 && wd !== -3 * d) // line mode, or Windows-style
+    const gap = e.timeStamp - wheelAt
+    if (gap > IDLE) {
       const wm = o.wheelMode ?? 'auto'
-      notched =
-        wm === 'step' ||
-        (wm === 'auto' && (e.deltaMode !== 0 || (wd ? wd % 120 === 0 && wd !== -3 * d : Math.abs(d) >= 50)))
+      notched = wm === 'step' || (wm === 'auto' && (classic || a >= 10))
       // A plain mouse wheel (vertical notches) also drives horizontal wheels.
       ours = notched || x === h
+      rate = 0
     }
     wheelAt = e.timeStamp
     if (!ours) return // a vertical trackpad gesture over a horizontal wheel scrolls the page
     e.preventDefault()
     // Horizontal deltas follow screen direction (mirrored in RTL); vertical notches mean "next".
     const delta = x ? d * sign() : d
-    if (notched) return step(Math.sign(delta) * (e.deltaMode === 2 ? o.visibleCount - 1 : o.wheelStep ?? 1))
-    // Smooth (trackpad, incl. OS momentum): follow it 1:1, settle once it goes quiet.
+    if (notched) {
+      // One notch, one row (repeated notches accumulate on the target).
+      if (classic || a < 50) return step(Math.sign(delta) * (e.deltaMode === 2 ? o.visibleCount - 1 : o.wheelStep ?? 1))
+      // An accelerated burst (macOS: 100–1800px every ~15ms when the wheel spins fast or free): following those
+      // pixels would teleport dozens of rows per event. Turn the wheel's rate into velocity instead, and let the
+      // physics glide and land, with a shorter coast than a throw (when the mouse wheel stops, so should we).
+      const r = a / Math.max(8, Math.min(100, gap))
+      rate = rate ? rate + (r - rate) * 0.5 : r
+      const target = Math.sign(delta) * Math.min(p.maxVelocity, WHEEL_GAIN * rate * size())
+      return fling(v * target > 0 ? v + (target - v) * 0.5 : target, undefined, WHEEL_DECAY)
+    }
+    // Smooth (trackpad, incl. OS momentum): follow it 1:1 along our axis only (a two-finger swipe always
+    // carries some cross-axis motion, which must not leak in), settle once it goes quiet.
+    const along = h ? e.deltaX * sign() : e.deltaY
     if (mode !== 'wheel') {
       stop()
       tracker.reset()
       setMode('wheel')
     }
-    raw += delta
+    raw += along
     if (!o.loop) {
       // OS momentum into an end would push raw far out; keep it within one viewport of rubber band.
       const cap = size() * o.visibleCount
