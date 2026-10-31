@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
-import { haptics as makeHaptics, tickSound as makeTickSound, ticks, type TickSoundOptions } from '../feedback'
 import { presets, type Physics, type PresetName } from '../presets'
 import { useDetent, type DetentOptions } from './useDetent'
 
@@ -94,12 +93,12 @@ export interface DetentProps<T> extends Omit<DetentOptions<T>, 'preset' | 'heade
   background?: string
 
   // Motion and feedback
-  /** A tuned bundle: 'ios' | 'scroll' | 'snappy' | 'heavy' | 'elastic' | 'linear', or your own physics. */
+  /**
+   * A tuned bundle: 'ios' | 'scroll' | 'snappy' | 'heavy' | 'elastic' | 'linear', or your own physics.
+   * Sound and haptics are opt-in so they cost nothing unless used:
+   * `onTick={ticks({ haptics: true, sound: true })}` from 'detent/feedback'.
+   */
   preset?: PresetName | Physics
-  /** Vibrate per tick where supported: true, or a pattern. */
-  haptics?: boolean | number | number[]
-  /** A soft click per tick (Web Audio), louder when faster. */
-  tickSound?: boolean | TickSoundOptions
 
   // Escape hatch
   /** Any per-row style from the live offset, applied every frame. */
@@ -123,7 +122,8 @@ ${U} [data-detent-band]{transition:outline-color .15s cubic-bezier(.23,1,.32,1);
 ${U}:focus-visible [data-detent-band]{outline-color:var(--detent-ring)}
 ${U} [data-detent-row]{display:flex;align-items:center;backface-visibility:hidden;white-space:nowrap}
 ${U} [data-detent-layer]{position:absolute;inset:0;pointer-events:none}
-${U} [data-detent-layer] [data-detent-row]{pointer-events:auto}`)
+${U} [data-detent-layer] [data-detent-row]{pointer-events:auto}
+${U} img{-webkit-user-drag:none;user-select:none}`)
 
 const EASE = {
   linear: 'var(--abs-offset)',
@@ -181,9 +181,6 @@ export function Detent<T>(props: DetentProps<T>) {
     glare,
     background,
     preset,
-    haptics,
-    tickSound,
-    onTick,
     rowStyle,
     theme,
     className,
@@ -196,15 +193,6 @@ export function Detent<T>(props: DetentProps<T>) {
   const item = itemHeight ?? itemSize ?? 40
   const pitch = item + gap
   const vertical = orientation !== 'horizontal'
-  const feedback = useMemo(
-    () =>
-      ticks(
-        onTick,
-        !!haptics && makeHaptics(haptics === true ? {} : { pattern: haptics }),
-        tickSound && makeTickSound(tickSound === true ? {} : tickSound),
-      ),
-    [onTick, haptics, tickSound],
-  )
   const d = useDetent<T>({
     ...options,
     preset: typeof preset === 'string' ? presets[preset] : preset,
@@ -214,7 +202,6 @@ export function Detent<T>(props: DetentProps<T>) {
     header: header != null,
     footer: footer != null,
     loading,
-    onTick: feedback,
   })
 
   // Geometry. Rows sit on a cylinder of radius R, θ = offset·α per row, projected with perspective P.
@@ -300,7 +287,7 @@ export function Detent<T>(props: DetentProps<T>) {
   }
   const syncRef = useRef(sync)
   syncRef.current = sync
-  useEffect(() => d.subscribe((f) => syncRef.current(f.offset)), [d])
+  useEffect(() => d.subscribe((f) => syncRef.current(f.offset)), []) // eslint-disable-line react-hooks/exhaustive-deps
   // Every render too (layout phase, before paint): the engine may have moved the track while mirrors
   // were not subscribed yet (mount, RTL detected after hydration), and re-renders reset inline styles.
   useIsoLayoutEffect(() => sync(d.engine.x / pitch))
@@ -490,8 +477,9 @@ export function Detent<T>(props: DetentProps<T>) {
             {emptyState}
           </div>
         )}
-        <div {...d.getLiveRegionProps()} />
       </div>
+      {/* A sibling, not a child: a listbox may only own options. */}
+      <div {...d.getLiveRegionProps()} />
     </>
   )
 }

@@ -28,12 +28,14 @@ const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
 export function MinutePicker() {
   const d = useDetent({ items: minutes, defaultValue: '30', itemSize: 44, visibleCount: 5, label: 'Minutes' })
   return (
-    <div {...d.getRootProps()}>
-      <div {...d.getTrackProps()}>
-        {d.rows.map((r) => <div key={r.key} {...r.getProps()}>{r.item}</div>)}
+    <>
+      <div {...d.getRootProps()}>
+        <div {...d.getTrackProps()}>
+          {d.rows.map((r) => <div key={r.key} {...r.getProps()}>{r.item}</div>)}
+        </div>
       </div>
       <div {...d.getLiveRegionProps()} />
-    </div>
+    </>
   )
 }
 ```
@@ -53,19 +55,19 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 
 | Import | Size |
 | --- | --- |
-| `useDetent` (physics + engine + hook) | 6.26 kB |
-| `<Detent>` (styled component: core + every visual prop + feedback) | 10.28 kB |
-| `createEngine` (physics + engine, no React) | 3.98 kB |
-| `detent/feedback` (haptics, tick sound) | 0.52 kB |
+| `useDetent` (physics + engine + hook) | 6.39 kB |
+| `<Detent>` (styled component: core + every visual prop) | 9.96 kB |
+| `createEngine` (physics + engine, no React) | 4.09 kB |
+| `detent/feedback` (haptics, tick sound) | 0.58 kB |
 
 Presets other than the default are tree-shaken unless you import `presets`.
 
 ## Feedback (opt-in)
 
 ```tsx
-import { haptics, tickSound, ticks } from 'detent/feedback'
+import { ticks } from 'detent/feedback'
 
-useDetent({ items, onTick: ticks(haptics(), tickSound({ volume: 0.4 })) })
+<Detent items={items} onTick={ticks({ haptics: true, sound: { volume: 0.4 } })} />
 ```
 
 Both are no-ops where unsupported (the Vibration API does not exist on iOS Safari).
