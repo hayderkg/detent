@@ -128,9 +128,14 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     raf = requestAnimationFrame(frame)
   }
 
-  function run(m: Motion) {
+  /**
+   * Start a motion. `at` is when it begins, in the rAF/event clock: for a release, the pointer
+   * event's timeStamp (when the finger really was there). rAF timestamps are frame-start times, which
+   * can precede the handler, so starting at performance.now() would stall the first frame.
+   */
+  function run(m: Motion, at = performance.now()) {
     motion = m
-    t0 = performance.now()
+    t0 = Math.min(at, performance.now())
     if (m.duration <= 0) {
       raw = m.to
       return rest()
@@ -140,11 +145,11 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   }
 
   /** Release at the current position with velocity `vel`: project, snap, glide. */
-  function fling(vel: number) {
+  function fling(vel: number, at?: number) {
     if (o.count <= 0) return rest()
     const r = release(raw, reduced ? 0 : vel, size(), bounds(), reduced ? { ...physics(), snapDuration: 200 } : physics())
     target = r.index
-    run(r)
+    run(r, at)
   }
 
   function goTo(index: number, animate = true) {
@@ -178,6 +183,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   let start = 0
   let startRaw = 0
   let dragging = false
+  let movedAt = 0 // timeStamp of the last move that changed the position (what is on screen)
   let caught = false
   let suppress = 0
   const axis = (e: { clientX: number; clientY: number }) => (horizontal() ? e.clientX : e.clientY)
@@ -199,10 +205,6 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     dragging = false
     tracker.reset()
     tracker.push(e.timeStamp, finger(e))
-    if (e.pointerType === 'mouse') {
-      e.preventDefault() // no text selection; we focus ourselves
-      el?.focus({ preventScroll: true })
-    }
     addEventListener('pointermove', move)
     addEventListener('pointerup', up)
     addEventListener('pointercancel', cancel)
@@ -226,6 +228,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     }
     raw = startRaw - (axis(e) - start) * (o.dragRatio ?? 1)
     v = tracker.get(e.timeStamp) // live finger speed, so ticks during a drag carry velocity too
+    movedAt = e.timeStamp
     render()
   }
 
@@ -243,7 +246,9 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     end()
     if (dragging) {
       suppress = e.timeStamp + 400 // the click that ends a drag never selects
-      return fling(tracker.get(e.timeStamp))
+      // Continue from the last on-screen drag position's time, so the first coast frame carries a
+      // full frame of travel (no stall), unless the finger rested before lifting.
+      return fling(tracker.get(e.timeStamp), e.timeStamp - movedAt < 50 ? movedAt : e.timeStamp)
     }
     if (caught) return fling(0)
     // A click: turn to the row under the pointer.
@@ -346,6 +351,8 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     e.preventDefault()
   }
 
+  const noDrag = (e: Event) => e.preventDefault()
+
   // ── Wiring ──────────────────────────────────────────────────────────────
   function attach(node: HTMLElement) {
     el = node
@@ -357,6 +364,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     node.addEventListener('wheel', wheel, { passive: false })
     node.addEventListener('keydown', key)
     node.addEventListener('click', click, true)
+    node.addEventListener('dragstart', noDrag) // images/links in rows must not start native drag & drop
     render()
     return () => {
       mq.removeEventListener?.('change', onMq)
@@ -364,6 +372,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
       node.removeEventListener('wheel', wheel)
       node.removeEventListener('keydown', key)
       node.removeEventListener('click', click, true)
+      node.removeEventListener('dragstart', noDrag)
       if (pid !== null) end()
       clearTimeout(wheelTimer)
       stop()
