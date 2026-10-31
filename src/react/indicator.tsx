@@ -243,7 +243,7 @@ export function indicatorStyle<T>(o: IndicatorOptions<T>, vertical: boolean): CS
   const hair = 'var(--detent-line)'
   const box = (shape === 'rounded' || shape === 'pill') && material !== 'outline' && material !== 'gradient-border'
   const shadows: string[] = []
-  const st: CSSProperties = { borderRadius: shape === 'pill' ? 999 : shape === 'rounded' ? o.radius ?? 10 : 0 }
+  const st: CSSProperties = { borderRadius: shape === 'pill' ? 999 : shape === 'rounded' ? o.radius ?? 12 : 0 }
 
   if (shape === 'lines') shadows.push(vertical ? `inset 0 1px ${hair}, inset 0 -1px ${hair}` : `inset 1px 0 ${hair}, inset -1px 0 ${hair}`)
   else if (shape === 'underline') shadows.push(`inset 0 -2px ${accent}`)
@@ -263,7 +263,8 @@ export function indicatorStyle<T>(o: IndicatorOptions<T>, vertical: boolean): CS
   if (shape === 'rounded' || shape === 'pill') {
     if (material === 'solid') {
       st.background = o.background ?? (typeof o.color === 'function' ? 'color-mix(in oklab, var(--indicator-color, var(--detent-fg)) 14%, transparent)' : 'var(--detent-band)')
-      shadows.push(`inset 0 0 0 1px ${hair}`)
+      // A hairline ring and a faint top highlight: a soft lens, not a form field.
+      shadows.push(`inset 0 0 0 .5px ${hair}`, 'inset 0 1px 0 var(--detent-glare)')
     } else if (material === 'glass') {
       Object.assign(st, {
         background: o.background ?? 'color-mix(in oklab, var(--detent-fg) 5%, transparent)',

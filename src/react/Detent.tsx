@@ -117,8 +117,8 @@ export interface DetentProps<T> extends Omit<DetentOptions<T>, 'preset' | 'heade
   style?: CSSProperties
 }
 
-const light = '--detent-fg:#0a0a0a;--detent-dim-color:#b4b4b4;--detent-band:rgb(0 0 0/.045);--detent-line:rgb(0 0 0/.09);--detent-ring:#0a0a0a;--detent-shade:rgb(0 0 0/.07);--detent-glare:rgb(255 255 255/.55)'
-const dark = '--detent-fg:#ededed;--detent-dim-color:#5a5a5a;--detent-band:rgb(255 255 255/.06);--detent-line:rgb(255 255 255/.1);--detent-ring:#ededed;--detent-shade:rgb(0 0 0/.35);--detent-glare:rgb(255 255 255/.08)'
+const light = '--detent-fg:#0a0a0a;--detent-dim-color:#b4b4b4;--detent-band:rgb(0 0 0/.04);--detent-line:rgb(0 0 0/.12);--detent-ring:#0a0a0a;--detent-shade:rgb(0 0 0/.07);--detent-glare:rgb(255 255 255/.55)'
+const dark = '--detent-fg:#ededed;--detent-dim-color:#5a5a5a;--detent-band:rgb(255 255 255/.065);--detent-line:rgb(255 255 255/.12);--detent-ring:#ededed;--detent-shade:rgb(0 0 0/.35);--detent-glare:rgb(255 255 255/.08)'
 const U = '[data-detent-ui]'
 /** Built on first use: a module-level template literal with interpolations is not tree-shakeable. */
 let css: string | undefined
@@ -369,7 +369,7 @@ export function Detent<T>(props: DetentProps<T>) {
     ...(ind.shape === 'dot' ? { width: 'calc(var(--indicator-w) + 24px)', marginLeft: -12 } : {}),
     ...hs,
   }
-  const radiusVar = ind.shape === 'pill' ? '999px' : ind.shape === 'rounded' || !ind.shape ? `${ind.radius ?? 10}px` : '0px'
+  const radiusVar = ind.shape === 'pill' ? '999px' : ind.shape === 'rounded' || !ind.shape ? `${ind.radius ?? 12}px` : '0px'
 
   // Progressive edge blur: stacked backdrop-filter layers, each masked to a band that reaches a bit
   // further from the edge than the next stronger one. Overlapping linear ramps = no visible steps.
