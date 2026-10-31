@@ -73,3 +73,14 @@ describe('ticks', () => {
     expect(b).toHaveBeenCalledWith(3, 1.5)
   })
 })
+
+describe('ticks options', () => {
+  it('builds haptics from { haptics: true } and still accepts handlers', () => {
+    const vibrate = vi.fn()
+    vi.stubGlobal('navigator', { vibrate })
+    const mine = vi.fn()
+    ticks({ haptics: true }, mine)(1, 1)
+    expect(vibrate).toHaveBeenCalledTimes(1)
+    expect(mine).toHaveBeenCalledWith(1, 1)
+  })
+})

@@ -62,9 +62,27 @@ export function tickSound({ volume = 0.5, fullAt = 2, interval = 22 }: TickSound
   }
 }
 
-/** Run several tick handlers from one onTick. */
-export const ticks =
-  (...handlers: (TickHandler | false | null | undefined)[]): TickHandler =>
-  (i, v) => {
-    for (const h of handlers) h && h(i, v)
+export interface TicksOptions {
+  /** Vibrate per tick: true, or haptics options. */
+  haptics?: boolean | HapticsOptions
+  /** A soft click per tick: true, or tick sound options. */
+  sound?: boolean | TickSoundOptions
+}
+
+/**
+ * One onTick from several sources: `ticks({ haptics: true, sound: true })`, or combine handlers,
+ * `ticks(myHandler, haptics(), tickSound({ volume: 0.3 }))`. Falsy entries are skipped.
+ */
+export function ticks(...sources: (TickHandler | TicksOptions | false | null | undefined)[]): TickHandler {
+  const handlers: TickHandler[] = []
+  for (const s of sources) {
+    if (typeof s === 'function') handlers.push(s)
+    else if (s) {
+      if (s.haptics) handlers.push(haptics(s.haptics === true ? {} : s.haptics))
+      if (s.sound) handlers.push(tickSound(s.sound === true ? {} : s.sound))
+    }
   }
+  return (i, v) => {
+    for (const h of handlers) h(i, v)
+  }
+}
