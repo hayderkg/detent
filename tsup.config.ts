@@ -6,7 +6,7 @@ export default defineConfig({
   dts: true,
   clean: true,
   minify: false,
-  treeshake: true,
   target: 'es2020',
   external: ['react', 'react-dom'],
+  banner: { js: "'use client';" },
 })
