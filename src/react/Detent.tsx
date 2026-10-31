@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
 import { presets, type Physics, type PresetName } from '../presets'
-import { useDetent, type DetentOptions } from './useDetent'
+import { indicatorStyle, useIndicator, type IndicatorOptions, type IndicatorState } from './indicator'
+import { useDetent, type DetentOptions, type Key } from './useDetent'
 
 /** A falloff by distance from the center: per-row amount, or a function of the signed offset (rows) returning the value. */
 export type Falloff = number | ((offset: number) => number)
@@ -66,8 +67,15 @@ export interface DetentProps<T> extends Omit<DetentOptions<T>, 'preset' | 'heade
   /** Curve applied to the distance before the falloffs. Default 'linear'. */
   easing?: Easing
 
-  // Selection band
-  /** The band behind the center row, or your own element. Default true. */
+  // Selection indicator
+  /**
+   * The selection marker: shape, material, style, and fit. `fit: 'content'` makes it follow the centered
+   * item's size, morphing between items as they pass and straight to the target on a throw.
+   */
+  indicator?: IndicatorOptions<T>
+  /** Your own indicator content; live values are also CSS variables (--indicator-w, -h, -progress, -velocity, -color). */
+  renderIndicator?: (state: IndicatorState<T>) => ReactNode
+  /** The band behind the center row, or your own element. Default true. (Shorthand: `indicator.shape: 'none'` turns it off.) */
   highlight?: boolean | ReactNode
   /** 'rounded' (default), 'pill', 'lines' (iOS hairlines above and below), or your own styles. */
   highlightStyle?: 'rounded' | 'pill' | 'lines' | CSSProperties
@@ -171,6 +179,8 @@ export function Detent<T>(props: DetentProps<T>) {
     highlight = true,
     highlightStyle = 'rounded',
     highlightShadow,
+    indicator,
+    renderIndicator,
     magnify = true,
     selectedStyle,
     selectedClassName,
@@ -214,6 +224,35 @@ export function Detent<T>(props: DetentProps<T>) {
   const extent = pitch * visibleCount
   const zoom = magnify === true ? 1.1 : magnify || 0
   const dir = d.rtl && !vertical ? -1 : 1
+
+  // Indicator: the legacy band props map onto it; `indicator` wins where both are set.
+  const ind: IndicatorOptions<T> = {
+    shape: highlight === false ? 'none' : typeof highlightStyle === 'string' ? highlightStyle : 'rounded',
+    shadow: highlightShadow,
+    ...indicator,
+  }
+  const fitContent = ind.fit === 'content'
+  const inset = ind.inset ?? (ind.shape === 'lines' || ind.shape === 'needle' || ind.shape === 'underline' ? 0 : 6)
+  const rootEl = useRef<HTMLElement | null>(null)
+  const keyOf = (it: T, i: number): Key => (options.getKey ? options.getKey(it, i) : typeof it === 'string' || typeof it === 'number' ? it : i)
+  const indicatorCtl = useIndicator(d, rootEl, { get current() { return track.current } }, {
+    opts: ind,
+    items: options.items,
+    keyOf,
+    loop: !!options.loop,
+    vertical,
+    item,
+    pitch,
+  })
+  // Physical left edge of the indicator box (vertical wheels), accounting for align and RTL.
+  const px0 = fitContent ? 16 - (ind.paddingX ?? 14) : inset
+  const flip = d.rtl && vertical
+  const crossStart =
+    !vertical || align === 'center'
+      ? 'calc(50% - var(--indicator-w) / 2)'
+      : (align === 'start') !== flip
+        ? `${px0}px`
+        : `calc(100% - ${px0}px - var(--indicator-w))`
 
   // JS-driven per-frame values (only when a prop is a function).
   const fns = { fade, scale, blur, dim, spacing }
@@ -298,35 +337,37 @@ export function Detent<T>(props: DetentProps<T>) {
   const edge =
     mask === 'none' ? '' : mask === 'gradient' ? `linear-gradient(to ${side},transparent,#000 ${ms},#000 calc(100% - ${ms}),transparent)` : mask
   const bandStart = base + gap / 2
-  const bandEnd = bandStart + item
-  const gapMask = `linear-gradient(to ${side},#000 ${bandStart}px,transparent ${bandStart}px,transparent ${bandEnd}px,#000 ${bandEnd}px)`
-  const maskStyle = (withGap: boolean): CSSProperties => {
-    const m = [edge, withGap && zoom ? gapMask : ''].filter(Boolean)
-    return m.length
-      ? { maskImage: m.join(','), WebkitMaskImage: m.join(','), maskComposite: 'intersect', WebkitMaskComposite: 'source-in' }
-      : {}
-  }
+  const maskStyle = (): CSSProperties => (edge ? { maskImage: edge, WebkitMaskImage: edge } : {})
+  // With the lens: rows are hidden exactly where the indicator box is (the lens shows them magnified there),
+  // so a long word entering a still-narrow indicator shows plain outside and magnified inside, never cut.
+  const crossEnd = `calc(${crossStart} + var(--indicator-w))`
+  const holeMask = vertical
+    ? `linear-gradient(to bottom,#000 calc(50% - var(--indicator-h) / 2),transparent 0 calc(50% + var(--indicator-h) / 2),#000 0),linear-gradient(to right,#000 ${crossStart},transparent 0 ${crossEnd},#000 0)`
+    : `linear-gradient(to right,#000 calc(50% - var(--indicator-w) / 2),transparent 0 calc(50% + var(--indicator-w) / 2),#000 0),linear-gradient(to bottom,#000 calc(50% - var(--indicator-h) / 2),transparent 0 calc(50% + var(--indicator-h) / 2),#000 0)`
+  const holeStyle: CSSProperties = zoom
+    ? { position: 'absolute', inset: 0, maskImage: holeMask, WebkitMaskImage: holeMask, maskComposite: 'add', WebkitMaskComposite: 'source-over' }
+    : { position: 'absolute', inset: 0 }
+  const lensClip = vertical
+    ? `inset(calc(50% - var(--indicator-h) / 2) calc(100% - ${crossEnd}) calc(50% - var(--indicator-h) / 2) ${crossStart} round var(--indicator-r))`
+    : `inset(calc(50% - var(--indicator-h) / 2) calc(50% - var(--indicator-w) / 2) round var(--indicator-r))`
 
-  // Band geometry: along the axis it covers the center row; across, inset by style.
+  // Indicator box: centered on the band, sized by --indicator-w / --indicator-h (px from the frame loop with
+  // fit 'content', otherwise the band), drawn by shape × material.
   const hs = typeof highlightStyle === 'object' ? highlightStyle : undefined
-  const kind = typeof highlightStyle === 'string' ? highlightStyle : 'rounded'
-  const along = vertical ? { top: bandStart, height: item } : { insetInlineStart: bandStart, width: item }
-  const across = kind === 'lines' ? 0 : 6
-  const bandStyle: CSSProperties = {
+  const indicatorBox: CSSProperties = {
     position: 'absolute',
-    ...along,
-    ...(vertical ? { left: across, right: across } : { top: across, bottom: across }),
-    borderRadius: kind === 'pill' ? 999 : kind === 'lines' ? 0 : 10,
-    background: kind === 'lines' ? 'transparent' : 'var(--detent-band)',
-    boxShadow:
-      kind === 'lines'
-        ? vertical
-          ? 'inset 0 1px var(--detent-line), inset 0 -1px var(--detent-line)'
-          : 'inset 1px 0 var(--detent-line), inset -1px 0 var(--detent-line)'
-        : `inset 0 0 0 1px var(--detent-line)${highlightShadow ? `, ${highlightShadow === true ? '0 6px 16px -6px rgb(0 0 0/.18), 0 1px 2px rgb(0 0 0/.06)' : highlightShadow}` : ''}`,
+    width: 'var(--indicator-w)',
+    height: 'var(--indicator-h)',
+    top: 'calc(50% - var(--indicator-h) / 2)',
+    left: vertical ? crossStart : 'calc(50% - var(--indicator-w) / 2)', // physical: crossStart already accounts for RTL
+    boxSizing: 'border-box',
     pointerEvents: 'none',
+    ...indicatorStyle(ind, vertical),
+    // The dot sits outside the content (clear of the lens' magnified text): widen only the drawn box.
+    ...(ind.shape === 'dot' ? { width: 'calc(var(--indicator-w) + 24px)', marginLeft: -12 } : {}),
     ...hs,
   }
+  const radiusVar = ind.shape === 'pill' ? '999px' : ind.shape === 'rounded' || !ind.shape ? `${ind.radius ?? 10}px` : '0px'
 
   // Progressive edge blur: stacked backdrop-filter layers, each masked to a band that reaches a bit
   // further from the edge than the next stronger one. Overlapping linear ramps = no visible steps.
@@ -359,6 +400,10 @@ export function Detent<T>(props: DetentProps<T>) {
     '--detent-skew': skew,
     '--detent-dir': dir,
     '--detent-magnify': zoom || 1,
+    // Band-sized until measured (fit 'content' writes px every frame).
+    '--indicator-w': vertical ? `calc(100% - ${2 * inset}px)` : `${item}px`,
+    '--indicator-h': vertical ? `${item}px` : `calc(100% - ${2 * inset}px)`,
+    '--indicator-r': radiusVar,
   } as CSSProperties
 
   const trackProps = d.getTrackProps({ ref: track })
@@ -383,6 +428,7 @@ export function Detent<T>(props: DetentProps<T>) {
       <style>{CSS()}</style>
       <div
         {...d.getRootProps({
+          ref: rootEl,
           className,
           style: {
             ...(vertical ? { width: width ?? '100%' } : { height }),
@@ -395,12 +441,20 @@ export function Detent<T>(props: DetentProps<T>) {
         data-theme={theme}
       >
         <div data-detent-layer="" style={{ transform: tiltT ? `perspective(${P || 800}px) ${tiltT}` : undefined }}>
-          {highlight !== false && (
-            <div data-detent-band="" style={bandStyle}>
-              {highlight === true ? null : highlight}
+          {(ind.shape !== 'none' || renderIndicator || (highlight !== true && highlight !== false)) && (
+            <div data-detent-band="" style={indicatorBox}>
+              {highlight !== true && highlight !== false ? highlight : null}
+              {renderIndicator?.({
+                width: indicatorCtl.state.current.w,
+                height: indicatorCtl.state.current.h,
+                progress: 1,
+                velocity: 0,
+                item: d.selectedItem,
+              })}
             </div>
           )}
-          <div data-detent-layer="" style={maskStyle(true)}>
+          <div data-detent-layer="" style={maskStyle()}>
+           <div style={holeStyle}>
             <div {...trackProps}>
               {d.rows.map((r) => {
                 const sel = r.selected
@@ -413,18 +467,21 @@ export function Detent<T>(props: DetentProps<T>) {
                     ...rowStyle?.(r.offset, r.index, sel),
                   },
                 })
+                const body = renderItem
+                  ? renderItem(r.item, { index: r.index, selected: sel, offset: r.offset, progress: Math.max(0, 1 - Math.abs(r.offset) / (visibleCount / 2)) })
+                  : String(r.item)
                 return (
                   <div key={r.key} {...p} data-detent-row="" data-detent-item={r.index}>
-                    {renderItem
-                      ? renderItem(r.item, { index: r.index, selected: sel, offset: r.offset, progress: Math.max(0, 1 - Math.abs(r.offset) / (visibleCount / 2)) })
-                      : String(r.item)}
+                    {/* With fit 'content' the content box is measured (ResizeObserver) to size the indicator. */}
+                    {fitContent ? <span data-detent-content="" style={{ display: 'inline-flex', alignItems: 'center' }}>{body}</span> : body}
                   </div>
                 )
               })}
             </div>
+           </div>
           </div>
           {(header != null || footer != null || loading) && (
-            <div data-detent-layer="" style={maskStyle(false)}>
+            <div data-detent-layer="" style={maskStyle()}>
               <div ref={slots} style={mirror}>
                 {slotRow(d.header, header)}
                 {slotRow(d.loadingRow, loadingRow)}
@@ -439,7 +496,7 @@ export function Detent<T>(props: DetentProps<T>) {
             <div
               data-detent-layer=""
               aria-hidden
-              style={{ clipPath: vertical ? `inset(${bandStart}px 0 ${extent - bandEnd}px 0)` : `inset(0 ${extent - bandEnd}px 0 ${bandStart}px)` }}
+              style={{ clipPath: lensClip }}
             >
               <div ref={lens} style={mirror}>
                 {d.rows.map((r) => (
