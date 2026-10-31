@@ -34,21 +34,17 @@ export function velocityTracker(window = 100, stale = 40, size = 16): VelocityTr
       // Use samples inside the window, but always at least the last two (sparse input).
       let i = n - 1
       while (i > 0 && (now - ts[i - 1]! <= window || i > n - 2)) i--
-      let sw = 0, st = 0, sx = 0
+      // One-pass weighted least squares. Times are taken relative to `now` (|t| ≤ ~150ms), so the
+      // Σt² − (Σt)² form has no cancellation problem.
+      let sw = 0, st = 0, sx = 0, stt = 0, stx = 0
       for (let j = i; j < n; j++) {
-        const w = (1 - Math.min(1, (now - ts[j]!) / (window * 1.5))) ** 2 + 1e-6
-        sw += w; st += w * ts[j]!; sx += w * xs[j]!
+        const t = ts[j]! - now
+        const x = xs[j]! - xs[n - 1]! // centered too: positions can be ~1e6px
+        const w = (1 - Math.min(1, -t / (window * 1.5))) ** 2 + 1e-6
+        sw += w; st += w * t; sx += w * x; stt += w * t * t; stx += w * t * x
       }
-      const mt = st / sw
-      const mx = sx / sw
-      let num = 0, den = 0
-      for (let j = i; j < n; j++) {
-        const w = (1 - Math.min(1, (now - ts[j]!) / (window * 1.5))) ** 2 + 1e-6
-        const dt = ts[j]! - mt
-        num += w * dt * (xs[j]! - mx)
-        den += w * dt * dt
-      }
-      return den > 0 ? num / den : 0
+      const den = sw * stt - st * st
+      return den > 1e-9 ? (sw * stx - st * sx) / den : 0
     },
   }
 }

@@ -46,3 +46,11 @@ describe('velocityTracker', () => {
     expect(vt.get(0)).toBe(0)
   })
 })
+
+describe('velocityTracker precision', () => {
+  it('stays exact far from the origin (large timestamps and positions)', () => {
+    const vt = velocityTracker()
+    for (let t = 0; t <= 100; t += 8) vt.push(5e7 + t, 3e6 - 1.25 * t)
+    expect(vt.get(5e7 + 100)).toBeCloseTo(-1.25, 9)
+  })
+})

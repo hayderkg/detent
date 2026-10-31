@@ -207,10 +207,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     dragging = false
     tracker.reset()
     tracker.push(e.timeStamp, finger(e))
-    addEventListener('pointermove', move)
-    addEventListener('pointerup', up)
-    addEventListener('pointercancel', cancel)
-    addEventListener('blur', cancel)
+    track(addEventListener)
   }
 
   function move(e: PointerEvent) {
@@ -234,11 +231,16 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     render()
   }
 
+  /** Follow the pointer on the window: releases outside the element (or the window) still land. */
+  const track = (f: typeof addEventListener) => {
+    f('pointermove', move)
+    f('pointerup', up)
+    f('pointercancel', cancel)
+    f('blur', cancel)
+  }
+
   function end() {
-    removeEventListener('pointermove', move)
-    removeEventListener('pointerup', up)
-    removeEventListener('pointercancel', cancel)
-    removeEventListener('blur', cancel)
+    track(removeEventListener)
     el?.removeAttribute('data-dragging')
     pid = null
   }

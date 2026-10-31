@@ -2,8 +2,6 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
-  useMemo,
-  useRef,
   useState,
   type CSSProperties,
   type HTMLAttributes,
@@ -124,152 +122,135 @@ export interface DetentApi<T> {
 
 const fmt = (n: number) => String(Math.round(n * 1e4) / 1e4)
 
-function merge<E>(...refs: (Ref<E> | undefined)[]): RefCallback<E> {
+/** The CSS variables of a row at distance `off` from the center. */
+const vars = (off: number, visible: number): [string, string][] => {
+  const abs = Math.abs(off)
+  return [
+    ['--offset', fmt(off)],
+    ['--abs-offset', fmt(abs)],
+    ['--progress', fmt(Math.max(0, 1 - abs / (visible / 2)))],
+    ['--selected', abs < 0.5 ? '1' : '0'],
+  ]
+}
+
+function merge(own: (el: HTMLElement | null) => void, theirs?: Ref<HTMLElement>): RefCallback<HTMLElement> {
   return (node) => {
-    for (const r of refs) typeof r === 'function' ? r(node) : r && ((r as { current: E | null }).current = node)
+    own(node)
+    typeof theirs === 'function' ? theirs(node) : theirs && ((theirs as { current: HTMLElement | null }).current = node)
   }
 }
 
-export function useDetent<T>(options: DetentOptions<T>): DetentApi<T> {
-  const {
-    items,
-    getKey = (item: T, i: number) => (typeof item === 'string' || typeof item === 'number' ? item : i),
-    itemSize = 36,
-    visibleCount = 5,
-    orientation = 'vertical',
-    overscan = 3,
-    loop = false,
-  } = options
-  const latest = useRef(options)
-  latest.current = options
-  const id = useId()
-  const n = items.length
-  const keys = useMemo(() => items.map(getKey), [items]) // eslint-disable-line react-hooks/exhaustive-deps
-  const keysRef = useRef(keys)
-  const vertical = orientation !== 'horizontal'
-  const base = ((visibleCount - 1) / 2) * itemSize
-  const [rtl, setRtl] = useState(options.dir === 'rtl')
-  // Virtual layout: [header -1] items 0..n-1 [loading n] [footer].
-  const head = !loop && !!options.header
-  const loadAt = !loop && options.loading ? n : NaN
-  const footAt = !loop && options.footer ? n + (options.loading ? 1 : 0) : NaN
-  const min = head ? -1 : 0
-  const max = footAt === footAt ? footAt : n - 1
+/**
+ * Everything stateful lives in this closure, created once per hook instance: plain locals instead of
+ * refs and states (smaller, and no stale closures). React only re-renders when rows or selection change.
+ */
+function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
+  let o = init
+  let items: readonly T[] | undefined
+  let keys: Key[] = []
+  let prevKeys: Key[] | undefined
+  let n = 0
+  let size = 36
+  let visible = 5
+  let vertical = true
+  let loop = false
+  let base = 0
+  let head = false
+  let loadAt = NaN
+  let footAt = NaN
+  let rtl = init.dir === 'rtl'
+  let root: HTMLElement | null = null
+  let track: HTMLElement | null = null
+  let win: [number, number]
+  let announce = ''
+  let endFor = -1
+  let spinning = false
+  let committing = false
+  const subs = new Set<(f: DetentFrame) => void>()
 
-  const label = (i: number) => {
-    const o = latest.current
-    return o.getLabel ? o.getLabel(o.items[i] as T, i) : String(o.items[i])
+  const getKey = (item: T, i: number): Key =>
+    o.getKey ? o.getKey(item, i) : typeof item === 'string' || typeof item === 'number' ? item : i
+  const keyOf = (v: T | undefined) => (v === undefined ? undefined : getKey(v, -1))
+
+  /** Derive layout from the latest options (render phase: no side effects outside these locals). */
+  function derive(next: DetentOptions<T>) {
+    o = next
+    if (o.items !== items) keys = (items = o.items).map(getKey)
+    n = items.length
+    size = o.itemSize ?? 36
+    visible = o.visibleCount ?? 5
+    vertical = o.orientation !== 'horizontal'
+    loop = !!o.loop
+    base = ((visible - 1) / 2) * size
+    // Virtual layout: [header -1] items 0..n-1 [loading n] [footer].
+    head = !loop && !!o.header
+    loadAt = !loop && o.loading ? n : NaN
+    footAt = !loop && o.footer ? n + (o.loading ? 1 : 0) : NaN
   }
+  derive(init)
+
+  /** Virtual index the wheel rests on (may be a header/footer). */
+  let rest = Math.max(0, keys.indexOf(keyOf(init.value ?? init.defaultValue) as Key))
+  /** Last item index the wheel rested on, and the last one reported through onChange. */
+  let sel = rest
+  let emitted = rest
+  let valueKey = keyOf(init.value)
+
+  const span = (c: number, lead = 0): [number, number] => {
+    const half = (visible - 1) / 2
+    const over = o.overscan ?? 3
+    return [Math.floor(c - half) - over - Math.max(0, -lead), Math.ceil(c + half) + over + Math.max(0, lead)]
+  }
+  win = span(rest)
+
+  const label = (i: number) => (o.getLabel ? o.getLabel(o.items[i] as T, i) : String(o.items[i]))
   const itemAt = (j: number) => (loop ? mod(j, n) : j >= 0 && j < n ? j : -1)
   const enabled = (j: number) => {
     const i = itemAt(j)
-    if (i < 0) return j !== loadAt
-    const o = latest.current
-    return !o.isDisabled?.(o.items[i] as T, i)
+    return i < 0 ? j !== loadAt : !o.isDisabled?.(o.items[i] as T, i)
   }
-  const indexOf = (v: T | undefined) => (v === undefined ? -1 : keysRef.current.indexOf(getKey(v, -1)))
-
-  /** Virtual index the wheel rests on (may be a header/footer). */
-  const [rest, setRest] = useState(() => Math.max(0, indexOf(options.value ?? options.defaultValue)))
-  /** Last item index the wheel rested on. */
-  const [sel, setSel] = useState(rest)
-  const [announce, setAnnounce] = useState('')
-  const span = (center: number, lead = 0): [number, number] => {
-    const half = (visibleCount - 1) / 2
-    return [Math.floor(center - half) - overscan - Math.max(0, -lead), Math.ceil(center + half) + overscan + Math.max(0, lead)]
-  }
-  const [win, setWin] = useState(() => span(rest))
-  const winRef = useRef(win)
-  winRef.current = win
-
-  const root = useRef<HTMLElement | null>(null)
-  const track = useRef<HTMLElement | null>(null)
-  const subs = useRef(new Set<(f: DetentFrame) => void>())
-  const committing = useRef(false)
-  const emitted = useRef(sel)
-  const endFor = useRef(-1)
-  const spinning = useRef(false)
-
-  const engineOptions = (): EngineOptions => ({
-    ...latest.current,
-    count: n,
-    itemSize,
-    visibleCount,
-    orientation,
-    loop,
-    rtl,
-    min,
-    max,
-    isEnabled: enabled,
-    getLabel: label,
-    onRender,
-    onMode,
-    onTick,
-    onSettle,
-  })
-
   const transform = (x: number) => {
     const d = base - x
     return vertical ? `translate3d(0,${d}px,0)` : `translate3d(${rtl ? -d : d}px,0,0)`
   }
-
-  const publish = (f: DetentFrame) => subs.current.forEach((fn) => fn(f))
+  const publish = (velocity: number) =>
+    subs.forEach((fn) => fn({ offset: engine.x / size, velocity, mode: engine.mode }))
 
   function emit(i: number) {
-    if (i === emitted.current) return
-    emitted.current = i
-    const o = latest.current
-    o.onChange?.(o.items[i] as T, i)
+    if (i !== emitted) o.onChange?.(o.items[(emitted = i)] as T, i)
   }
 
   function onRender(x: number, v: number) {
-    const o = latest.current
-    const c = x / itemSize
-    const t = track.current
-    if (t) {
-      t.style.transform = transform(x)
-      for (const r of t.children as unknown as HTMLElement[]) {
-        const idx = r.dataset.detentIndex
-        if (idx === undefined) continue
-        const off = +idx - c
-        const abs = Math.abs(off)
-        const s = r.style
-        s.setProperty('--offset', fmt(off))
-        s.setProperty('--abs-offset', fmt(abs))
-        s.setProperty('--progress', fmt(Math.max(0, 1 - abs / (visibleCount / 2))))
-        s.setProperty('--selected', abs < 0.5 ? '1' : '0')
+    const c = x / size
+    if (track) {
+      track.style.transform = transform(x)
+      for (const r of track.children as unknown as HTMLElement[]) {
+        const j = r.dataset.detentIndex
+        if (j) for (const [k, val] of vars(+j - c, visible)) r.style.setProperty(k, val)
       }
     }
     // Keep the rendered window ahead of the motion (lead by ~3 frames of travel).
-    const half = (visibleCount - 1) / 2
-    const [a, b] = winRef.current
-    if (Math.floor(c - half) - 1 < a || Math.ceil(c + half) + 1 > b) {
-      const next = span(c, Math.round((v * 48) / itemSize))
-      winRef.current = next
-      if (committing.current || !t) setWin(next)
-      else flushSync(() => setWin(next))
+    const half = (visible - 1) / 2
+    if (Math.floor(c - half) - 1 < win[0] || Math.ceil(c + half) + 1 > win[1]) {
+      win = span(c, Math.round((v * 48) / size))
+      committing || !track ? update() : flushSync(update)
     }
-    if (!loop && o.onEndReached && n && c >= n - 1 - (o.endReachedThreshold ?? 5) && endFor.current !== n) {
-      endFor.current = n
+    if (!loop && o.onEndReached && n && c >= n - 1 - (o.endReachedThreshold ?? 5) && endFor !== n) {
+      endFor = n
       o.onEndReached()
     }
     o.onScrollProgress?.(c)
-    if (subs.current.size) publish({ offset: c, velocity: v, mode: engine.mode })
+    publish(v)
   }
 
   function onMode(m: Mode) {
-    const o = latest.current
-    if (root.current) root.current.dataset.state = m
-    if (track.current) track.current.style.willChange = m === 'idle' ? '' : 'transform'
-    if (m !== 'idle' !== spinning.current) {
-      spinning.current = m !== 'idle'
-      spinning.current ? o.onSpinStart?.() : o.onSpinEnd?.()
-    }
-    if (subs.current.size) publish({ offset: engine.x / itemSize, velocity: engine.v, mode: m })
+    if (root) root.dataset.state = m
+    if (track) track.style.willChange = m === 'idle' ? '' : 'transform'
+    if (m !== 'idle' !== spinning) (spinning = !spinning) ? o.onSpinStart?.() : o.onSpinEnd?.()
+    publish(engine.v)
   }
 
   function onTick(j: number, v: number) {
-    const o = latest.current
     const i = itemAt(j)
     if (i < 0) return
     o.onTick?.(i, v)
@@ -277,145 +258,127 @@ export function useDetent<T>(options: DetentOptions<T>): DetentApi<T> {
   }
 
   function onSettle(j: number) {
-    const o = latest.current
-    setRest(j)
-    if (j < 0) return o.onHeaderRest?.()
-    if (j === footAt) return o.onFooterRest?.()
+    rest = j
     const i = itemAt(j)
-    if (i < 0) return
-    setSel(i)
-    setAnnounce(label(i))
-    o.onSettle?.(o.items[i] as T, i)
-    emit(i)
+    if (j < 0) o.onHeaderRest?.()
+    else if (j === footAt) o.onFooterRest?.()
+    else if (i >= 0) {
+      sel = i
+      announce = label(i)
+      o.onSettle?.(o.items[i] as T, i)
+      emit(i)
+    }
+    update()
   }
 
-  const [engine] = useState(() => createEngine(rest, engineOptions()))
+  const engineOptions = (): EngineOptions => ({
+    ...o,
+    count: n,
+    itemSize: size,
+    visibleCount: visible,
+    loop,
+    rtl,
+    min: head ? -1 : 0,
+    max: footAt === footAt ? footAt : n - 1,
+    isEnabled: enabled,
+    getLabel: label,
+    onRender,
+    onMode,
+    onTick,
+    onSettle,
+  })
+  const engine = createEngine(rest, engineOptions())
+  // The track's transform is owned by the engine after mount; React only ever sets this first one (SSR-correct).
+  const initial = transform(rest * size)
 
-  // Latest options into the engine every render (cheap object merge).
-  useIso(() => engine.set(engineOptions()))
-
-  // Attach input once mounted; pick up the text direction from the DOM.
-  useEffect(() => (root.current ? engine.attach(root.current) : undefined), [engine])
-  useIso(() => {
-    const r = root.current
-    if (r && options.dir === undefined) setRtl(getComputedStyle(r).direction === 'rtl')
-  }, [])
-  useIso(() => {
-    engine.set({ rtl })
-    engine.sync()
-  }, [rtl])
-
-  // Items changed: keep the centered item's identity (no jump), clamp if it vanished.
-  useIso(() => {
-    const prev = keysRef.current
-    keysRef.current = keys
-    if (prev === keys) return
+  /** Layout phase, every render: push options to the engine, keep identity across item changes, follow `value`. */
+  function commit() {
     engine.set(engineOptions())
-    const cv = engine.index
-    const ci = loop ? mod(cv, prev.length || 1) : cv
-    if (ci < 0 || ci >= prev.length) return // resting on a header/footer: nothing to keep
-    const ni = keys.indexOf(prev[ci] as Key)
-    committing.current = true
-    if (ni >= 0 && ni !== ci) {
-      engine.shift(ni - ci)
-      setRest((s) => s + ni - ci)
-      setSel(ni)
-      emitted.current = ni
-    } else if (ni < 0 && engine.mode === 'idle' && n) {
-      engine.goTo(Math.min(n - 1, ci), false)
+    committing = true
+    const prev = prevKeys
+    prevKeys = keys
+    if (prev && prev !== keys) {
+      const ci = loop ? mod(engine.index, prev.length || 1) : engine.index
+      if (ci >= 0 && ci < prev.length) {
+        const ni = keys.indexOf(prev[ci] as Key)
+        if (ni >= 0 && ni !== ci) {
+          engine.shift(ni - ci) // the centered item keeps its place on screen
+          rest += ni - ci
+          sel = emitted = ni
+          update()
+        } else if (ni < 0 && engine.mode === 'idle' && n) engine.goTo(Math.min(n - 1, ci), false)
+      }
     }
-    committing.current = false
-  }, [keys])
+    const vk = keyOf(o.value)
+    if (vk !== valueKey && (valueKey = vk) !== undefined) {
+      const i = keys.indexOf(vk as Key)
+      if (i >= 0 && i !== emitted) engine.scrollTo((emitted = i), o.animate ?? true)
+    }
+    committing = false
+  }
 
-  // Controlled value.
-  const valueKey = options.value === undefined ? undefined : getKey(options.value, -1)
-  useIso(() => {
-    if (valueKey === undefined) return
-    const i = keys.indexOf(valueKey)
-    if (i < 0 || i === emitted.current) return
-    emitted.current = i
-    engine.scrollTo(i, options.animate ?? true)
-  }, [valueKey])
+  /** Mount: pick up the text direction from the DOM, then attach input. */
+  function mount() {
+    if (!root) return
+    if (o.dir === undefined) engine.set({ rtl: (rtl = getComputedStyle(root).direction === 'rtl') })
+    committing = true // attach renders once; inside a layout effect, re-render without flushSync
+    const detach = engine.attach(root)
+    committing = false
+    return detach
+  }
 
   const optionId = (j: number) => `${id}-${j}`
-  const offsetNow = engine.x / itemSize
-  const style = (j: number, extra?: CSSProperties): CSSProperties => {
-    const off = j - offsetNow
-    const abs = Math.abs(off)
-    return {
-      position: 'absolute',
-      ...(vertical
-        ? { left: 0, right: 0, top: j * itemSize, height: itemSize }
-        : { top: 0, bottom: 0, insetInlineStart: j * itemSize, width: itemSize }),
-      ...({
-        '--offset': fmt(off),
-        '--abs-offset': fmt(abs),
-        '--progress': fmt(Math.max(0, 1 - abs / (visibleCount / 2))),
-        '--selected': abs < 0.5 ? 1 : 0,
-      } as CSSProperties),
-      ...extra,
-    }
-  }
-  const slot = (j: number, role: string, extra?: (p: DetentPropsIn) => object): Slot => ({
-    virtual: j,
-    offset: j - offsetNow,
-    selected: j === rest,
-    getProps: (p = {}) =>
-      ({
-        ...p,
-        id: optionId(j),
-        role,
-        'data-detent-index': j,
-        'data-selected': j === rest ? '' : undefined,
-        ...extra?.(p),
-        style: style(j, p.style),
-      }) as DetentProps,
-  })
-  const visible = (j: number) => j === j && j >= win[0] && j <= win[1]
 
-  const rows: DetentRow<T>[] = []
-  if (n) {
-    for (let j = win[0]; j <= win[1]; j++) {
+  /** Build the API for this render. */
+  function api(): DetentApi<T> {
+    const now = engine.x / size
+    const slot = (j: number, role: string, extra: object = {}): Slot => ({
+      virtual: j,
+      offset: j - now,
+      selected: j === rest,
+      getProps: (p = {}) =>
+        ({
+          ...p,
+          id: optionId(j),
+          role,
+          'data-detent-index': j,
+          'data-selected': j === rest ? '' : undefined,
+          'aria-selected': role === 'option' ? j === rest : undefined,
+          ...extra,
+          style: {
+            position: 'absolute',
+            ...(vertical
+              ? { left: 0, right: 0, top: j * size, height: size }
+              : { top: 0, bottom: 0, insetInlineStart: j * size, width: size }),
+            ...Object.fromEntries(vars(j - now, visible)),
+            ...p.style,
+          },
+        }) as DetentProps,
+    })
+    const shows = (j: number) => j >= win[0] && j <= win[1]
+    const rows: DetentRow<T>[] = []
+    for (let j = win[0]; n && j <= win[1]; j++) {
       const index = itemAt(j)
       if (index < 0) continue
-      const item = items[index] as T
       const disabled = !enabled(j)
       rows.push({
-        ...slot(j, 'option', () => ({
-          'aria-selected': j === rest,
-          'aria-disabled': disabled || undefined,
-          'data-disabled': disabled ? '' : undefined,
-        })),
-        item,
+        ...slot(j, 'option', disabled ? { 'aria-disabled': true, 'data-disabled': '' } : {}),
+        item: o.items[index] as T,
         index,
         key: loop ? `${keys[index]}:${Math.floor(j / n)}` : (keys[index] as Key),
         disabled,
       })
     }
-  }
+    const selectedIndex = n ? Math.min(n - 1, sel) : -1
+    const along = (p: DetentPropsIn, own: (el: HTMLElement | null) => void, style: CSSProperties) =>
+      ({ ...p, ref: merge(own, p.ref), style: { ...style, ...p.style } }) as DetentProps
 
-  // The track's transform is owned by the engine after mount; React only ever sets the first one (SSR-correct).
-  const [initialTransform] = useState(() => transform(rest * itemSize))
-  const selectedIndex = n ? Math.min(n - 1, sel) : -1
-
-  return {
-    getRootProps: (p = {}) =>
-      ({
-        ...p,
-        ref: merge(root, p.ref),
-        role: 'listbox',
-        tabIndex: options.disabled ? -1 : 0,
-        'aria-label': options.label,
-        'aria-orientation': orientation,
-        'aria-activedescendant': n || head ? optionId(rest) : undefined,
-        'aria-disabled': options.disabled || undefined,
-        'data-detent': '',
-        'data-state': 'idle',
-        'data-orientation': orientation,
-        style: {
+    return {
+      getRootProps: (p = {}) => ({
+        ...along(p, (el) => (root = el), {
           position: 'relative',
           overflow: 'hidden',
-          [vertical ? 'height' : 'width']: itemSize * visibleCount,
+          [vertical ? 'height' : 'width']: size * visible,
           touchAction: vertical ? 'pan-x' : 'pan-y',
           // Contain only our axis: the root is a scroll container (overflow: hidden), so containing both
           // axes would also stop cross-axis pans (a vertical swipe over a horizontal wheel) reaching the page.
@@ -424,43 +387,56 @@ export function useDetent<T>(options: DetentOptions<T>): DetentApi<T> {
           WebkitUserSelect: 'none',
           WebkitTouchCallout: 'none',
           WebkitTapHighlightColor: 'transparent',
-          ...p.style,
-        } as CSSProperties,
-      }) as DetentProps,
-    getTrackProps: (p = {}) =>
-      ({
-        ...p,
-        ref: merge(track, p.ref),
-        role: 'presentation',
-        style: {
+        } as CSSProperties),
+        role: 'listbox',
+        tabIndex: o.disabled ? -1 : 0,
+        'aria-label': o.label,
+        'aria-orientation': vertical ? 'vertical' : 'horizontal',
+        'aria-activedescendant': n || head ? optionId(rest) : undefined,
+        'aria-disabled': o.disabled || undefined,
+        'data-detent': '',
+        'data-state': 'idle',
+        'data-orientation': vertical ? 'vertical' : 'horizontal',
+      }),
+      getTrackProps: (p = {}) => ({
+        ...along(p, (el) => (track = el), {
           position: 'absolute',
-          ...(vertical
-            ? { left: 0, right: 0, top: 0, height: itemSize }
-            : { top: 0, bottom: 0, insetInlineStart: 0, width: itemSize }),
-          transform: initialTransform,
-          ...p.style,
-        },
-      }) as DetentProps,
-    getLiveRegionProps: (p = {}) =>
-      ({
-        ...p,
+          ...(vertical ? { left: 0, right: 0, top: 0, height: size } : { top: 0, bottom: 0, insetInlineStart: 0, width: size }),
+          transform: initial,
+        }),
+        role: 'presentation',
+      }),
+      getLiveRegionProps: (p = {}) => ({
+        ...along(p, () => {}, { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' }),
         role: 'status',
         'aria-live': 'polite',
         'aria-atomic': true,
-        style: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap', ...p.style },
         children: announce,
-      }) as DetentProps,
-    rows,
-    header: head && visible(-1) ? slot(-1, 'option', () => ({ 'aria-selected': rest === -1 })) : null,
-    footer: visible(footAt) ? slot(footAt, 'option', () => ({ 'aria-selected': rest === footAt })) : null,
-    loadingRow: visible(loadAt) ? slot(loadAt, 'presentation', () => ({ 'aria-busy': true })) : null,
-    selectedIndex,
-    selectedItem: selectedIndex >= 0 ? items[selectedIndex] : undefined,
-    scrollTo: (i, o) => engine.scrollTo(i, o?.animate ?? options.animate ?? true),
-    subscribe: (fn) => {
-      subs.current.add(fn)
-      return () => void subs.current.delete(fn)
-    },
-    engine,
+      }),
+      rows,
+      header: head && shows(-1) ? slot(-1, 'option') : null,
+      footer: shows(footAt) ? slot(footAt, 'option') : null,
+      loadingRow: shows(loadAt) ? slot(loadAt, 'presentation', { 'aria-busy': true }) : null,
+      selectedIndex,
+      selectedItem: selectedIndex >= 0 ? o.items[selectedIndex] : undefined,
+      scrollTo: (i, opt) => engine.scrollTo(i, opt?.animate ?? o.animate ?? true),
+      subscribe: (fn) => {
+        subs.add(fn)
+        return () => void subs.delete(fn)
+      },
+      engine,
+    }
   }
+
+  return { derive, commit, mount, api }
+}
+
+export function useDetent<T>(options: DetentOptions<T>): DetentApi<T> {
+  const id = useId()
+  const [, rerender] = useState(0)
+  const [c] = useState(() => controller(options, id, () => rerender((k) => k + 1)))
+  c.derive(options)
+  useIso(c.commit)
+  useIso(c.mount, [])
+  return c.api()
 }
