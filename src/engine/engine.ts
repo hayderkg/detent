@@ -56,6 +56,10 @@ export interface Engine {
   readonly mode: Mode
   /** Virtual index currently centered. */
   readonly index: number
+  /** Where the current (or last) motion is headed, as a virtual index: the release planner's row. */
+  readonly target: number
+  /** Position (rows) the current motion started from. Progress = (x − from) / (target − from). */
+  readonly from: number
 }
 
 const IDLE = 80 // ms without wheel events that ends a wheel gesture
@@ -71,6 +75,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   let t0 = 0
   let raf = 0
   let target = initialIndex
+  let from = initialIndex
   let shown = raw
   let el: HTMLElement | null = null
   let reduced = false
@@ -136,6 +141,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
    */
   function run(m: Motion, at = performance.now()) {
     motion = m
+    from = raw / size()
     t0 = Math.min(at, performance.now())
     if (m.duration <= 0) {
       raw = m.to
@@ -442,6 +448,12 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     },
     get index() {
       return center()
+    },
+    get target() {
+      return target
+    },
+    get from() {
+      return from
     },
   }
 }

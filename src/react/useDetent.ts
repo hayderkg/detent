@@ -106,6 +106,9 @@ export interface DetentFrame {
   /** px/ms */
   velocity: number
   mode: Mode
+  /** Coast/spring only: the row the motion lands on (virtual index), and where it started (rows). */
+  target: number
+  from: number
 }
 
 export interface DetentApi<T> {
@@ -221,7 +224,7 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
     return vertical ? `translate3d(0,${d}px,0)` : `translate3d(${rtl ? -d : d}px,0,0)`
   }
   const publish = (velocity: number) =>
-    subs.forEach((fn) => fn({ offset: engine.x / size, velocity, mode: engine.mode }))
+    subs.forEach((fn) => fn({ offset: engine.x / size, velocity, mode: engine.mode, target: engine.target, from: engine.from }))
 
   function emit(i: number) {
     if (i !== emitted) o.onChange?.(o.items[(emitted = i)] as T, i)
