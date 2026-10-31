@@ -60,7 +60,7 @@ The selection marker is a first-class part: shape, material, style, and fit.
 />
 ```
 
-`fit: 'content'` sizes it to the centered item and morphs it as items pass; on a throw it goes straight to the target item's size, arriving as the wheel lands. Shapes: `rounded`, `pill`, `lines`, `underline`, `brackets`, `dot`, `needle`, `none`. Materials: `solid`, `glass`, `outline`, `gradient-border`. `color` can be a function of the item (it cross-fades). Live values are CSS variables: `--indicator-w`, `--indicator-h`, `--indicator-progress`, `--indicator-velocity`, `--indicator-color`.
+`fit: 'content'` sizes it to the centered item and morphs it as items pass; on a throw it holds steady while rows cross the center, then catches the target item over the last `catchRows` (1.5) rows, arriving with it. Shapes: `rounded`, `pill`, `lines`, `underline`, `brackets`, `dot`, `needle`, `none`. Materials: `solid`, `glass`, `outline`, `gradient-border`. `color` can be a function of the item (it cross-fades). Live values are CSS variables: `--indicator-w`, `--indicator-h`, `--indicator-progress`, `--indicator-velocity`, `--indicator-color`.
 
 ## Size
 
@@ -69,7 +69,7 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 | Import | Size |
 | --- | --- |
 | `useDetent` (physics + engine + hook) | 6.43 kB |
-| `<Detent>` (styled component: core + every visual prop + indicator) | 12.34 kB |
+| `<Detent>` (styled component: core + every visual prop + indicator) | 12.44 kB |
 | `createEngine` (physics + engine, no React) | 4.11 kB |
 | `detent/feedback` (haptics, tick sound) | 0.58 kB |
 

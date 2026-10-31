@@ -30,6 +30,11 @@ export interface IndicatorOptions<T> {
   inset?: number
   /** 0–1: let the size overshoot with the settle spring. Default 0 (lands exactly). */
   overshoot?: number
+  /**
+   * Rows before the target where the indicator starts catching the incoming item (throws, keys and
+   * programmatic moves). Before that it holds steady. Default 1.5.
+   */
+  catchRows?: number
 }
 
 export interface IndicatorState<T> {
@@ -64,7 +69,7 @@ export function useIndicator<T>(d: DetentApi<T>, root: { current: HTMLElement | 
   const conf = useRef(cfg)
   conf.current = cfg
   const sizes = useRef(new Map<Key, { w: number; h: number }>())
-  const s = useRef({ w: NaN, h: NaN, cp: NaN, wFrom: 0, hFrom: 0, cFrom: '', motion: NaN, held: 0, t: 0 })
+  const s = useRef({ w: NaN, h: NaN, cp: NaN, wFrom: NaN, hFrom: NaN, cFrom: '', motion: NaN, held: 0, t: 0, rem0: NaN })
 
   const apply = (f: DetentFrame) => {
     const { opts: o, items, keyOf, loop, vertical, item } = conf.current
@@ -94,36 +99,9 @@ export function useIndicator<T>(d: DetentApi<T>, root: { current: HTMLElement | 
     let color: string | undefined
     let progress = 1
 
-    if (f.mode === 'coast' || f.mode === 'spring') {
-      // A throw, a key, a programmatic move: morph straight to the target row on the motion's own curve.
-      if (f.target !== st.motion) {
-        st.motion = f.target
-        st.wFrom = w
-        st.hFrom = h
-        if (colorFn) st.cFrom = colorAt(Math.round(isNaN(st.cp) ? f.offset : st.cp))
-      }
-      const span = f.target - f.from
-      progress = span ? (f.offset - f.from) / span : 1
-      const p = progress <= 1 ? Math.max(0, progress) : 1 + (progress - 1) * (o.overshoot ?? 0)
-      const t = size(f.target) ?? fallback
-      if (!isNaN(st.wFrom)) w = lerp(st.wFrom, t.w, p)
-      if (!isNaN(st.hFrom) && !isNaN(t.h)) h = lerp(st.hFrom, t.h, p)
-      if (colorFn) color = mix(st.cFrom, colorAt(f.target), clamp(p, 0, 1))
-      st.cp = f.offset
-      st.held = w
-    } else if (f.mode === 'idle') {
-      st.motion = NaN
-      const j = Math.round(f.offset)
-      const t = size(j)
-      const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
-      if (t) (w = Math.round(t.w * dpr) / dpr), (h = isNaN(t.h) ? h : Math.round(t.h * dpr) / dpr)
-      if (colorFn) color = colorAt(j)
-      st.cp = f.offset
-      st.held = w
-    } else {
-      // Drag / trackpad: morph between the two rows around the center, low-passed with a time constant that
-      // grows with speed (and holding the widest passing item when fast), so it never flickers.
-      st.motion = NaN
+    /** Hold steady while rows pass: live width between the two rows around the center, low-passed with a
+     * time constant that grows with speed (holding the widest passing item when fast): it never flickers. */
+    const follow = () => {
       const i = Math.floor(f.offset)
       const fr = f.offset - i
       const a = size(i) ?? fallback
@@ -140,6 +118,50 @@ export function useIndicator<T>(d: DetentApi<T>, root: { current: HTMLElement | 
         const ci = Math.floor(st.cp)
         color = mix(colorAt(ci), colorAt(ci + 1), st.cp - ci)
       }
+    }
+
+    if (f.mode === 'coast' || f.mode === 'spring') {
+      // A throw, a key, a programmatic move. The indicator holds steady while other rows cross the center,
+      // then catches the target item over the last `catchRows` (single-row moves: over the whole move), so it
+      // arrives with the item, not before it.
+      if (f.target !== st.motion) {
+        st.motion = f.target
+        st.rem0 = NaN
+      }
+      const span = f.target - f.from
+      const dirn = Math.sign(span) || 1
+      const rem = (f.target - f.offset) * dirn // rows still to go (negative once past the target)
+      const catchWin = Math.abs(span) <= 1 ? Math.abs(span) : o.catchRows ?? 1.5
+      if (isNaN(st.rem0) && rem <= catchWin) {
+        // Entering the catch window: start from wherever the indicator is now.
+        st.rem0 = Math.max(rem, 1e-6)
+        st.wFrom = w
+        st.hFrom = h
+        if (colorFn) st.cFrom = color ?? colorAt(Math.round(isNaN(st.cp) ? f.offset : st.cp))
+      }
+      if (isNaN(st.rem0)) follow()
+      else {
+        progress = 1 - rem / st.rem0
+        const p = progress <= 1 ? Math.max(0, progress) : 1 + (progress - 1) * (o.overshoot ?? 0)
+        const t = size(f.target) ?? fallback
+        if (!isNaN(st.wFrom)) w = lerp(st.wFrom, t.w, p)
+        if (!isNaN(st.hFrom) && !isNaN(t.h)) h = lerp(st.hFrom, t.h, p)
+        if (colorFn) color = mix(st.cFrom || colorAt(f.target), colorAt(f.target), clamp(p, 0, 1))
+        st.cp = f.offset
+        st.held = w
+      }
+    } else if (f.mode === 'idle') {
+      st.motion = NaN
+      const j = Math.round(f.offset)
+      const t = size(j)
+      const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
+      if (t) (w = Math.round(t.w * dpr) / dpr), (h = isNaN(t.h) ? h : Math.round(t.h * dpr) / dpr)
+      if (colorFn) color = colorAt(j)
+      st.cp = f.offset
+      st.held = w
+    } else {
+      st.motion = NaN
+      follow()
     }
 
     st.w = w
