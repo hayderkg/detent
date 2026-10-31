@@ -186,6 +186,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   let startRaw = 0
   let dragging = false
   let movedAt = 0 // timeStamp of the last move that changed the position (what is on screen)
+  let movedFrame = 0 // the animation frame that move was painted in (rAF clock)
   let caught = false
   let suppress = 0
   const axis = (e: { clientX: number; clientY: number }) => (horizontal() ? e.clientX : e.clientY) * sign()
@@ -228,6 +229,9 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     raw = startRaw - (axis(e) - start) * (o.dragRatio ?? 1)
     v = tracker.get(e.timeStamp) // live finger speed, so ticks during a drag carry velocity too
     movedAt = e.timeStamp
+    // Frame time, not event time: a move handled late in a busy frame has a late timeStamp, and
+    // anchoring the coast to it would shortchange the first coast frame (a visible hitch).
+    movedFrame = Number(document.timeline?.currentTime ?? e.timeStamp)
     render()
   }
 
@@ -250,9 +254,9 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     end()
     if (dragging) {
       suppress = e.timeStamp + 400 // the click that ends a drag never selects
-      // Continue from the last on-screen drag position's time, so the first coast frame carries a
-      // full frame of travel (no stall), unless the finger rested before lifting.
-      return fling(tracker.get(e.timeStamp), e.timeStamp - movedAt < 50 ? movedAt : e.timeStamp)
+      // Continue from the frame that showed the last drag position, so the first coast frame carries
+      // a full frame of travel (no stall), unless the finger rested before lifting.
+      return fling(tracker.get(e.timeStamp), e.timeStamp - movedAt < 50 ? movedFrame : e.timeStamp)
     }
     if (caught) return fling(0)
     // A click: turn to the row under the pointer.
