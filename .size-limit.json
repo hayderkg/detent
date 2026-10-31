@@ -1,0 +1,23 @@
+[
+  {
+    "name": "core: useDetent (physics + engine + hook)",
+    "path": "dist/index.js",
+    "import": "{ useDetent }",
+    "gzip": true,
+    "limit": "6.3 kB",
+    "ignore": ["react", "react-dom"]
+  },
+  {
+    "name": "engine only: createEngine (no React)",
+    "path": "dist/index.js",
+    "import": "{ createEngine }",
+    "gzip": true,
+    "limit": "4 kB"
+  },
+  {
+    "name": "detent/feedback (haptics + tickSound + ticks)",
+    "path": "dist/feedback.js",
+    "gzip": true,
+    "limit": "550 B"
+  }
+]

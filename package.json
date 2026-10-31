@@ -39,19 +39,22 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
-    "dev": "tsup --watch"
+    "dev": "tsup --watch",
+    "size": "size-limit"
   },
   "peerDependencies": {
     "react": ">=18",
     "react-dom": ">=18"
   },
   "devDependencies": {
+    "@size-limit/preset-small-lib": "^14.3.0",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "happy-dom": "^21.0.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "size-limit": "^14.3.0",
     "tsup": "^9.0.0",
     "typescript": "^6.0.3",
     "vitest": "^5.0.5"
