@@ -8,6 +8,17 @@ Custom physics (not `scroll-snap`): real inertia, a throw that lands exactly on 
 
 ## Quickstart
 
+The styled component looks finished with zero props (light and dark, a subtle drum, an iOS-style magnifying lens, soft edges):
+
+```tsx
+'use client'
+import { Detent } from 'detent'
+
+export const Minutes = () => <Detent items={minutes} defaultValue="30" label="Minutes" />
+```
+
+Or go headless:
+
 ```tsx
 'use client'
 import { useDetent } from 'detent'
@@ -42,8 +53,9 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 
 | Import | Size |
 | --- | --- |
-| `useDetent` (physics + engine + hook) | 6.21 kB |
-| `createEngine` (physics + engine, no React) | 3.94 kB |
+| `useDetent` (physics + engine + hook) | 6.26 kB |
+| `<Detent>` (styled component: core + every visual prop + feedback) | 10.28 kB |
+| `createEngine` (physics + engine, no React) | 3.98 kB |
 | `detent/feedback` (haptics, tick sound) | 0.52 kB |
 
 Presets other than the default are tree-shaken unless you import `presets`.

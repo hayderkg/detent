@@ -5,7 +5,21 @@
     "import": "{ useDetent }",
     "gzip": true,
     "limit": "6.3 kB",
-    "ignore": ["react", "react-dom"]
+    "ignore": [
+      "react",
+      "react-dom"
+    ]
+  },
+  {
+    "name": "<Detent> (styled component, includes core + feedback)",
+    "path": "dist/index.js",
+    "import": "{ Detent }",
+    "gzip": true,
+    "limit": "10.5 kB",
+    "ignore": [
+      "react",
+      "react-dom"
+    ]
   },
   {
     "name": "engine only: createEngine (no React)",
