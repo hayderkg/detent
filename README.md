@@ -49,15 +49,28 @@ Every row gets `--offset`, `--abs-offset`, `--progress` and `--selected` CSS var
 }
 ```
 
+## Indicator
+
+The selection marker is a first-class part: shape, material, style, and fit.
+
+```tsx
+<Detent
+  items={words}
+  indicator={{ fit: 'content', shape: 'pill', material: 'glass' }}
+/>
+```
+
+`fit: 'content'` sizes it to the centered item and morphs it as items pass; on a throw it goes straight to the target item's size, arriving as the wheel lands. Shapes: `rounded`, `pill`, `lines`, `underline`, `brackets`, `dot`, `needle`, `none`. Materials: `solid`, `glass`, `outline`, `gradient-border`. `color` can be a function of the item (it cross-fades). Live values are CSS variables: `--indicator-w`, `--indicator-h`, `--indicator-progress`, `--indicator-velocity`, `--indicator-color`.
+
 ## Size
 
 Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit) (minified + gzipped, tree-shaken):
 
 | Import | Size |
 | --- | --- |
-| `useDetent` (physics + engine + hook) | 6.39 kB |
-| `<Detent>` (styled component: core + every visual prop) | 9.96 kB |
-| `createEngine` (physics + engine, no React) | 4.09 kB |
+| `useDetent` (physics + engine + hook) | 6.43 kB |
+| `<Detent>` (styled component: core + every visual prop + indicator) | 12.34 kB |
+| `createEngine` (physics + engine, no React) | 4.11 kB |
 | `detent/feedback` (haptics, tick sound) | 0.58 kB |
 
 Presets other than the default are tree-shaken unless you import `presets`.

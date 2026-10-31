@@ -15,7 +15,7 @@
     "path": "dist/index.js",
     "import": "{ Detent }",
     "gzip": true,
-    "limit": "10.05 kB",
+    "limit": "12.4 kB",
     "ignore": [
       "react",
       "react-dom"
