@@ -1,3 +1,7 @@
 export * from './physics'
 export { presets, resolvePhysics } from './presets'
 export type { Physics, PhysicsOptions, PresetName } from './presets'
+export { createEngine } from './engine/engine'
+export type { Engine, EngineOptions, Mode, Orientation, WheelMode } from './engine/engine'
+export { useDetent } from './react/useDetent'
+export type { DetentApi, DetentFrame, DetentOptions, DetentRow, Key } from './react/useDetent'
