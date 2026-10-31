@@ -201,7 +201,7 @@ export function Detent<T>(props: DetentProps<T>) {
   } = props
 
   const item = itemHeight ?? itemSize ?? 40
-  const pitch = item + gap
+  const pitch = Math.max(1, item + gap) || 40
   const vertical = orientation !== 'horizontal'
   const d = useDetent<T>({
     ...options,
@@ -290,8 +290,10 @@ export function Detent<T>(props: DetentProps<T>) {
   /** Values for function props (and custom easing) at `off`, as CSS variables. */
   const liveVars = (off: number): [string, string][] => {
     const out: [string, string][] = []
-    if (easeFn) out.push(['--e', String(easeFn(Math.abs(off)))])
-    for (const k of live) out.push([FALLOFF[k][0], String((fns[k] as (o: number) => number)(off))])
+    // Junk from user functions (NaN, Infinity) falls back to the neutral value instead of reaching the DOM.
+    const safe = (v: number, neutral: number) => String(Number.isFinite(v) ? v : neutral)
+    if (easeFn) out.push(['--e', safe(easeFn(Math.abs(off)), Math.abs(off))])
+    for (const k of live) out.push([FALLOFF[k][0], safe((fns[k] as (o: number) => number)(off), k === 'fade' || k === 'scale' ? 1 : 0)])
     return out
   }
 

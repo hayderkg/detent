@@ -68,7 +68,7 @@ const TYPEAHEAD_RESET = 600
 export function createEngine(initialIndex: number, options: EngineOptions): Engine {
   let o = options
   let p = resolvePhysics(o)
-  let raw = initialIndex * o.itemSize
+  let raw = initialIndex * Math.max(1, o.itemSize || 0)
   let v = 0
   let mode: Mode = 'idle'
   let motion: Motion | null = null
@@ -81,7 +81,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   let reduced = false
   const tracker = velocityTracker()
 
-  const size = () => o.itemSize
+  const size = () => Math.max(1, o.itemSize || 0) // a 0/negative/NaN size would make every position NaN
   const horizontal = () => o.orientation === 'horizontal'
   /** −1 when a horizontal wheel runs right-to-left: screen deltas map to the wheel reversed. */
   const sign = () => (o.rtl && horizontal() ? -1 : 1)

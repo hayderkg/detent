@@ -58,3 +58,13 @@ describe('crossings', () => {
     expect(got).toEqual([3, 2, 1, 0, -1])
   })
 })
+
+describe('crossings robustness', () => {
+  it('returns immediately for a 0 or NaN row size (it used to loop forever and hang the page)', () => {
+    const got: number[] = []
+    crossings(0, 100, 0, (i) => got.push(i))
+    crossings(0, 100, NaN, (i) => got.push(i))
+    crossings(NaN, 100, 36, (i) => got.push(i))
+    expect(got).toEqual([])
+  })
+})

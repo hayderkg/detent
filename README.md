@@ -68,9 +68,9 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 
 | Import | Size |
 | --- | --- |
-| `useDetent` (physics + engine + hook) | 6.43 kB |
-| `<Detent>` (styled component: core + every visual prop + indicator) | 12.44 kB |
-| `createEngine` (physics + engine, no React) | 4.11 kB |
+| `useDetent` (physics + engine + hook) | 6.55 kB |
+| `<Detent>` (styled component: core + every visual prop + indicator) | 12.59 kB |
+| `createEngine` (physics + engine, no React) | 4.13 kB |
 | `detent/feedback` (haptics, tick sound) | 0.58 kB |
 
 Presets other than the default are tree-shaken unless you import `presets`.

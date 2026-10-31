@@ -187,8 +187,8 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
     o = next
     if (o.items !== items) keys = (items = o.items).map(getKey)
     n = items.length
-    size = o.itemSize ?? 36
-    visible = o.visibleCount ?? 5
+    size = Math.max(1, o.itemSize ?? 36) || 36
+    visible = Math.max(1, Math.round(o.visibleCount ?? 5)) || 5
     vertical = o.orientation !== 'horizontal'
     loop = !!o.loop
     base = ((visible - 1) / 2) * size
@@ -322,6 +322,13 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
         } else if (ni < 0 && engine.mode === 'idle' && n) engine.goTo(Math.min(n - 1, ci), false)
       }
     }
+    // The row the wheel rests on may have disappeared (footer/header removed, list shortened): re-seat.
+    if (!loop && engine.mode === 'idle' && (n || head)) {
+      const lo = head ? -1 : 0
+      const hi = footAt === footAt ? footAt : n - 1
+      const at = engine.index
+      if (at < lo || at > hi || at === loadAt) engine.goTo(Math.max(lo, Math.min(hi, at === loadAt ? n - 1 : at)), false)
+    }
     const vk = keyOf(o.value)
     if (vk !== valueKey && (valueKey = vk) !== undefined) {
       const i = keys.indexOf(vk as Key)
@@ -374,6 +381,7 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
     })
     const shows = (j: number) => j >= win[0] && j <= win[1]
     const rows: DetentRow<T>[] = []
+    const used = new Set<Key>()
     for (let j = win[0]; n && j <= win[1]; j++) {
       const index = itemAt(j)
       if (index < 0) continue
@@ -384,7 +392,8 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
         ...slot(j, 'option', disabled ? { ...named, 'aria-disabled': true, 'data-disabled': '' } : named),
         item: o.items[index] as T,
         index,
-        key: loop ? `${keys[index]}:${Math.floor(j / n)}` : (keys[index] as Key),
+        // Duplicate item keys must not become duplicate React keys (React would recycle the wrong nodes).
+        key: ((k: Key) => (used.has(k) ? `${k}#${j}` : (used.add(k), k)))(loop ? `${keys[index]}:${Math.floor(j / n)}` : (keys[index] as Key)),
         disabled,
       })
     }
