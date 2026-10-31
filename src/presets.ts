@@ -10,6 +10,8 @@ export interface Physics {
   snapDuration: number
   /** Rows before the target where the coast hands off to the spring. Larger = more spring character. */
   handoff: number
+  /** How hard the row pulls the wheel in at the end of a throw (≥ 1; 1 = pure glide). */
+  magnet: number
 }
 
 export type PresetName = 'ios' | 'scroll' | 'snappy' | 'heavy' | 'elastic' | 'linear'
@@ -26,13 +28,13 @@ export const presets: Record<PresetName, Physics> = {
    * .fast (0.99, τ≈100ms) and .normal (0.998, τ≈500ms). To be decided side by side with a real
    * iOS picker on device.
    */
-  ios: { decay: 0.995, spring: s(170, 1), rubberBand: 1, maxVelocity: 8, snapDuration: 900, handoff: 0.5 },
+  ios: { decay: 0.995, spring: s(450, 0.85), rubberBand: 1, maxVelocity: 8, snapDuration: 900, handoff: 1, magnet: 1.1 },
   /** UIScrollView .normal deceleration: long, list-like glides. */
-  scroll: { decay: 0.998, spring: s(170, 1), rubberBand: 1, maxVelocity: 8, snapDuration: 900, handoff: 0.5 },
-  snappy: { decay: 0.993, spring: s(380, 1), rubberBand: 0.8, maxVelocity: 7, snapDuration: 500, handoff: 0.5 },
-  heavy: { decay: 0.9985, spring: s(140, 1, 1.6), rubberBand: 0.6, maxVelocity: 5, snapDuration: 1200, handoff: 0.5 },
-  elastic: { decay: 0.998, spring: s(220, 0.55), rubberBand: 1, maxVelocity: 8, snapDuration: 1400, handoff: 2 },
-  linear: { decay: 0.99, spring: s(500, 1), rubberBand: 0.4, maxVelocity: 6, snapDuration: 300, handoff: 0.5 },
+  scroll: { decay: 0.998, spring: s(450, 0.85), rubberBand: 1, maxVelocity: 8, snapDuration: 900, handoff: 1, magnet: 1.1 },
+  snappy: { decay: 0.993, spring: s(600, 0.85), rubberBand: 0.8, maxVelocity: 7, snapDuration: 500, handoff: 0.5, magnet: 1.6 },
+  heavy: { decay: 0.9985, spring: s(140, 1, 1.6), rubberBand: 0.6, maxVelocity: 5, snapDuration: 1200, handoff: 0.5, magnet: 1 },
+  elastic: { decay: 0.998, spring: s(220, 0.55), rubberBand: 1, maxVelocity: 8, snapDuration: 1400, handoff: 2, magnet: 100 },
+  linear: { decay: 0.99, spring: s(500, 1), rubberBand: 0.4, maxVelocity: 6, snapDuration: 300, handoff: 0.5, magnet: 3 },
 }
 
 export interface PhysicsOptions extends Partial<Omit<Physics, 'spring'>> {
@@ -53,5 +55,6 @@ export function resolvePhysics(o: PhysicsOptions = {}): Physics {
     maxVelocity: o.maxVelocity ?? base.maxVelocity,
     snapDuration: o.snapDuration ?? base.snapDuration,
     handoff: o.handoff ?? base.handoff,
+    magnet: o.magnet ?? base.magnet,
   }
 }

@@ -1,6 +1,6 @@
 import { coast, coastTimeTo, tau } from './decay'
 import { nearest, type Bounds } from './snap'
-import { spring } from './spring'
+import { dampingFor, dampingRatio, spring } from './spring'
 import type { Motion, SpringConfig } from './types'
 
 export interface ReleaseOptions {
@@ -15,6 +15,12 @@ export interface ReleaseOptions {
   handoff?: number
   /** Rest when within this many px of the target (use 0.5 / devicePixelRatio). */
   restDelta?: number
+  /**
+   * How hard the row pulls the wheel in at the end of a throw (≥ 1). A spring speeds the coast up
+   * when ω₀ > 2ζ/τ', which reads as a magnetic tug; the settle spring is softened to at most
+   * magnet × 2ζ/τ'. 1 = pure glide, ~1.1 = imperceptible, 2+ = a noticeable click. Default 1.1.
+   */
+  magnet?: number
 }
 
 export interface Release extends Motion {
@@ -76,7 +82,11 @@ export function release(x: number, v: number, size: number, b: Bounds, o: Releas
     const th = T2 * Math.log(Math.abs(d) / handoff)
     const c = coast(x, v, T2, th)
     const s = c.at(th)
-    return done(then(c, th, springTo(s.x, s.v)))
+    const { stiffness: k, mass: m } = o.spring
+    const z = dampingRatio(o.spring)
+    const w = Math.min(Math.sqrt(k / m), ((o.magnet ?? 1.1) * 2 * z * 1000) / T2)
+    const soft = { stiffness: w * w * m, damping: dampingFor(z, w * w * m, m), mass: m }
+    return done(then(c, th, spring(s.x, X, s.v, soft, o.snapDuration, o.restDelta)))
   }
   return done(springTo(x, v))
 }

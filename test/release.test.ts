@@ -39,10 +39,34 @@ describe('release', () => {
     }
   })
 
-  it('never reverses direction on a critically damped throw (no visible correction)', () => {
+  it('never visibly reverses on a throw (no correction): any reversal stays within half a device pixel', () => {
     for (const v of [0.5, 1, 2, 3.3, 5, -0.7, -2.2]) {
-      const m = release(500 * H + 3, v, H, open, ios)
-      for (const s of sample(m, 240)) expect(s.v * Math.sign(v)).toBeGreaterThanOrEqual(-1e-9)
+      const m = release(500 * H + 3, v, H, open, { ...ios, restDelta: 0.5 / 3 })
+      for (const s of sample(m, 240))
+        if (s.v * Math.sign(v) < 0) expect(Math.abs(s.x - m.index * H)).toBeLessThan(0.5 / 3)
+    }
+  })
+
+  it('no magnetic pull: the settle spring never speeds the coast up by more than ~10%', () => {
+    for (const v of [0.5, 1, 2, 4, 8]) {
+      const m = release(500 * H + 5, v, H, open, ios)
+      let vh = 0, vmax = 0
+      for (let t = 0; t <= m.duration; t++) {
+        const s = m.at(t)
+        if (s.phase !== 'spring') continue
+        vh ||= Math.abs(s.v)
+        vmax = Math.max(vmax, Math.abs(s.v))
+      }
+      expect(vmax / vh).toBeLessThan(1.12)
+    }
+  })
+
+  it('the final approach is short: the last 6px take under 200ms (was ~300ms)', () => {
+    for (const v of [0, 0.3, 1, 2, 4, 8, -2]) for (const x0 of [7, 20, 30]) {
+      const m = release(500 * H + x0, v, H, open, { ...ios, restDelta: 0.25 })
+      let t6 = 0
+      for (let t = 0; t <= m.duration && !t6; t++) if (Math.abs(m.at(t).x - m.index * H) < 6) t6 = t
+      expect(m.duration - t6).toBeLessThan(200)
     }
   })
 
