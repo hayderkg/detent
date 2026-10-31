@@ -60,7 +60,12 @@ export interface DetentOptions<T> extends PhysicsOptions {
   endReachedThreshold?: number
 }
 
-type Props = HTMLAttributes<HTMLElement> & { ref?: Ref<HTMLElement> }
+/** Props you pass in: any element ref is accepted. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type DetentPropsIn = HTMLAttributes<HTMLElement> & { ref?: Ref<any> }
+/** Props you spread: a callback ref fits any element type. */
+export type DetentProps = HTMLAttributes<HTMLElement> & { ref?: RefCallback<HTMLElement> }
+type Props = DetentProps
 
 export interface DetentRow<T> {
   item: T
@@ -73,7 +78,7 @@ export interface DetentRow<T> {
   offset: number
   selected: boolean
   disabled: boolean
-  getProps(props?: Props): Props
+  getProps(props?: DetentPropsIn): DetentProps
 }
 
 export interface DetentFrame {
@@ -85,10 +90,10 @@ export interface DetentFrame {
 }
 
 export interface DetentApi<T> {
-  getRootProps(props?: Props): Props
-  getTrackProps(props?: Props): Props
+  getRootProps(props?: DetentPropsIn): DetentProps
+  getTrackProps(props?: DetentPropsIn): DetentProps
   /** Visually hidden live region announcing the selection when the wheel settles. */
-  getLiveRegionProps(props?: Props): Props
+  getLiveRegionProps(props?: DetentPropsIn): DetentProps
   rows: DetentRow<T>[]
   selectedIndex: number
   selectedItem: T | undefined
@@ -385,6 +390,7 @@ export function useDetent<T>(options: DetentOptions<T>): DetentApi<T> {
         'aria-activedescendant': n ? optionId(sel) : undefined,
         'aria-disabled': options.disabled || undefined,
         'data-detent': '',
+        'data-state': 'idle',
         'data-orientation': orientation,
         style: {
           position: 'relative',

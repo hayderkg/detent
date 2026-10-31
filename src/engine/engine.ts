@@ -135,6 +135,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
       raw = m.to
       return rest()
     }
+    setMode(m.at(0).phase) // spinning from now, not from the next frame
     if (!raf) raf = requestAnimationFrame(frame)
   }
 
