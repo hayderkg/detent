@@ -1,0 +1,54 @@
+/**
+ * Release-velocity estimator over recent pointer samples.
+ *
+ * Weighted least-squares slope of x(t) over the last `window` ms, with weights (1 − age/(1.5·window))²
+ * so recent motion dominates without letting one noisy sample decide. If the newest sample is older
+ * than `stale` ms at release, the finger had stopped: velocity is 0.
+ */
+export interface VelocityTracker {
+  push(t: number, x: number): void
+  reset(): void
+  /** px/ms at time `now`. */
+  get(now: number): number
+}
+
+export function velocityTracker(window = 100, stale = 40, size = 16): VelocityTracker {
+  const ts: number[] = []
+  const xs: number[] = []
+  return {
+    push(t, x) {
+      ts.push(t)
+      xs.push(x)
+      if (ts.length > size) {
+        ts.shift()
+        xs.shift()
+      }
+    },
+    reset() {
+      ts.length = xs.length = 0
+    },
+    get(now) {
+      const n = ts.length
+      const last = ts[n - 1]
+      if (n < 2 || last === undefined || now - last > stale) return 0
+      // Use samples inside the window, but always at least the last two (sparse input).
+      let i = n - 1
+      while (i > 0 && (now - ts[i - 1]! <= window || i > n - 2)) i--
+      let sw = 0, st = 0, sx = 0
+      for (let j = i; j < n; j++) {
+        const w = (1 - Math.min(1, (now - ts[j]!) / (window * 1.5))) ** 2 + 1e-6
+        sw += w; st += w * ts[j]!; sx += w * xs[j]!
+      }
+      const mt = st / sw
+      const mx = sx / sw
+      let num = 0, den = 0
+      for (let j = i; j < n; j++) {
+        const w = (1 - Math.min(1, (now - ts[j]!) / (window * 1.5))) ** 2 + 1e-6
+        const dt = ts[j]! - mt
+        num += w * dt * (xs[j]! - mx)
+        den += w * dt * dt
+      }
+      return den > 0 ? num / den : 0
+    },
+  }
+}

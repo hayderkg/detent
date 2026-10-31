@@ -1,0 +1,50 @@
+import { dampingFor } from './physics/spring'
+import type { SpringConfig } from './physics/types'
+
+export interface Physics {
+  decay: number
+  spring: SpringConfig
+  /** 0–1 resistance past the ends (0 = hard stop). */
+  rubberBand: number
+  maxVelocity: number
+  snapDuration: number
+  /** Rows before the target where the coast hands off to the spring. Larger = more spring character. */
+  handoff: number
+}
+
+export type PresetName = 'ios' | 'snappy' | 'heavy' | 'elastic' | 'linear'
+
+const s = (stiffness: number, zeta: number, mass = 1): SpringConfig => ({
+  stiffness,
+  damping: dampingFor(zeta, stiffness, mass),
+  mass,
+})
+
+export const presets: Record<PresetName, Physics> = {
+  ios: { decay: 0.998, spring: s(170, 1), rubberBand: 1, maxVelocity: 8, snapDuration: 900, handoff: 0.5 },
+  snappy: { decay: 0.996, spring: s(380, 1), rubberBand: 0.8, maxVelocity: 7, snapDuration: 500, handoff: 0.5 },
+  heavy: { decay: 0.9985, spring: s(140, 1, 1.6), rubberBand: 0.6, maxVelocity: 5, snapDuration: 1200, handoff: 0.5 },
+  elastic: { decay: 0.998, spring: s(220, 0.55), rubberBand: 1, maxVelocity: 8, snapDuration: 1400, handoff: 2 },
+  linear: { decay: 0.99, spring: s(500, 1), rubberBand: 0.4, maxVelocity: 6, snapDuration: 300, handoff: 0.5 },
+}
+
+export interface PhysicsOptions extends Partial<Omit<Physics, 'spring'>> {
+  preset?: PresetName
+  spring?: Partial<SpringConfig>
+  /** 0–1 shorthand for an underdamped settle: ζ = 1 − 0.7·overshoot. Overrides spring.damping. */
+  overshoot?: number
+}
+
+export function resolvePhysics(o: PhysicsOptions = {}): Physics {
+  const base = presets[o.preset ?? 'ios']
+  const sp = { ...base.spring, ...o.spring }
+  if (o.overshoot != null) sp.damping = dampingFor(1 - 0.7 * o.overshoot, sp.stiffness, sp.mass)
+  return {
+    decay: o.decay ?? base.decay,
+    spring: sp,
+    rubberBand: o.rubberBand ?? base.rubberBand,
+    maxVelocity: o.maxVelocity ?? base.maxVelocity,
+    snapDuration: o.snapDuration ?? base.snapDuration,
+    handoff: o.handoff ?? base.handoff,
+  }
+}
