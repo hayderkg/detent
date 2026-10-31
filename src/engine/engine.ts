@@ -225,6 +225,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
       setMode('drag')
     }
     raw = startRaw - (axis(e) - start) * (o.dragRatio ?? 1)
+    v = tracker.get(e.timeStamp) // live finger speed, so ticks during a drag carry velocity too
     render()
   }
 
