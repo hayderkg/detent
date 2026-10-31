@@ -22,39 +22,39 @@ const s = (stiffness: number, zeta: number, mass = 1): SpringConfig => ({
   mass,
 })
 
-export const presets: Record<PresetName, Physics> = {
-  /**
-   * PROVISIONAL. UIPickerView feels heavier than a scroll view: somewhere between UIScrollView's
-   * .fast (0.99, τ≈100ms) and .normal (0.998, τ≈500ms). To be decided side by side with a real
-   * iOS picker on device.
-   */
-  ios: { decay: 0.995, spring: s(450, 0.85), rubberBand: 1, maxVelocity: 8, snapDuration: 900, handoff: 1, magnet: 1.1 },
+/**
+ * PROVISIONAL. UIPickerView feels heavier than a scroll view: somewhere between UIScrollView's
+ * .fast (0.99, τ≈100ms) and .normal (0.998, τ≈500ms). To be decided side by side with a real
+ * iOS picker on device. The only preset in the core bundle: it is the default.
+ */
+export const ios: Physics = { decay: 0.995, spring: s(450, 0.85), rubberBand: 1, maxVelocity: 8, snapDuration: 900, handoff: 1, magnet: 1.1 }
+
+/** Tuned bundles. Pass one as `preset` (e.g. `preset: presets.snappy`); unused ones are tree-shaken. */
+export const presets: Record<PresetName, Physics> = /* @__PURE__ */ (() => ({
+  ios,
   /** UIScrollView .normal deceleration: long, list-like glides. */
   scroll: { decay: 0.998, spring: s(450, 0.85), rubberBand: 1, maxVelocity: 8, snapDuration: 900, handoff: 1, magnet: 1.1 },
   snappy: { decay: 0.993, spring: s(600, 0.85), rubberBand: 0.8, maxVelocity: 7, snapDuration: 500, handoff: 0.5, magnet: 1.6 },
   heavy: { decay: 0.9985, spring: s(140, 1, 1.6), rubberBand: 0.6, maxVelocity: 5, snapDuration: 1200, handoff: 0.5, magnet: 1 },
   elastic: { decay: 0.998, spring: s(220, 0.55), rubberBand: 1, maxVelocity: 8, snapDuration: 1400, handoff: 2, magnet: 100 },
   linear: { decay: 0.99, spring: s(500, 1), rubberBand: 0.4, maxVelocity: 6, snapDuration: 300, handoff: 0.5, magnet: 3 },
-}
+}))()
 
 export interface PhysicsOptions extends Partial<Omit<Physics, 'spring'>> {
-  preset?: PresetName
+  /** Base physics (default `ios`), e.g. `presets.snappy`. Individual options below override it. */
+  preset?: Physics
   spring?: Partial<SpringConfig>
   /** 0–1 shorthand for an underdamped settle: ζ = 1 − 0.7·overshoot. Overrides spring.damping. */
   overshoot?: number
 }
 
+const fields = ['decay', 'rubberBand', 'maxVelocity', 'snapDuration', 'handoff', 'magnet'] as const
+
 export function resolvePhysics(o: PhysicsOptions = {}): Physics {
-  const base = presets[o.preset ?? 'ios']
-  const sp = { ...base.spring, ...o.spring }
-  if (o.overshoot != null) sp.damping = dampingFor(1 - 0.7 * o.overshoot, sp.stiffness, sp.mass)
-  return {
-    decay: o.decay ?? base.decay,
-    spring: sp,
-    rubberBand: o.rubberBand ?? base.rubberBand,
-    maxVelocity: o.maxVelocity ?? base.maxVelocity,
-    snapDuration: o.snapDuration ?? base.snapDuration,
-    handoff: o.handoff ?? base.handoff,
-    magnet: o.magnet ?? base.magnet,
-  }
+  const base = o.preset ?? ios
+  const spring = { ...base.spring, ...o.spring }
+  if (o.overshoot != null) spring.damping = dampingFor(1 - 0.7 * o.overshoot, spring.stiffness, spring.mass)
+  const r = { ...base, spring }
+  for (const f of fields) if (o[f] != null) r[f] = o[f]!
+  return r
 }

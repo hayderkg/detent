@@ -32,7 +32,7 @@ function replay(g: Gesture) {
   let releaseV = NaN
   const start = 50
   const engine = createEngine(start, {
-    count: 200, itemSize: SIZE, visibleCount: 5, preset: 'ios',
+    count: 200, itemSize: SIZE, visibleCount: 5,
     onRender: (x, v) => frames.push({ x, v, t: performance.now() }),
     onSettle: (i) => (settled = i),
     onMode: (m) => { if ((m === 'coast' || m === 'spring') && Number.isNaN(releaseV)) releaseV = engine.v },

@@ -123,7 +123,7 @@ describe('release', () => {
   })
 
   it('elastic preset overshoots the target, then settles on it', () => {
-    const p = resolvePhysics({ preset: 'elastic' })
+    const p = resolvePhysics({ preset: presets.elastic })
     const m = release(10 * H, 1.5, H, bounds, p)
     const xs = sample(m, 240).map((s) => s.x)
     expect(Math.max(...xs)).toBeGreaterThan(m.index * H + 4) // visible, not a twitch
@@ -172,7 +172,7 @@ describe('resolvePhysics', () => {
     expect(p.spring.damping / (2 * Math.sqrt(p.spring.stiffness * p.spring.mass))).toBeCloseTo(0.65, 10)
   })
   it('overrides a preset field by field', () => {
-    const p = resolvePhysics({ preset: 'snappy', decay: 0.99, spring: { mass: 2 } })
+    const p = resolvePhysics({ preset: presets.snappy, decay: 0.99, spring: { mass: 2 } })
     expect(p.decay).toBe(0.99)
     expect(p.spring.mass).toBe(2)
     expect(p.spring.stiffness).toBe(presets.snappy.spring.stiffness)

@@ -1,5 +1,5 @@
 export * from './physics'
-export { presets, resolvePhysics } from './presets'
+export { ios, presets, resolvePhysics } from './presets'
 export type { Physics, PhysicsOptions, PresetName } from './presets'
 export { createEngine } from './engine/engine'
 export type { Engine, EngineOptions, Mode, Orientation, WheelMode } from './engine/engine'
