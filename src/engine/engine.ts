@@ -259,10 +259,26 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
       return fling(tracker.get(e.timeStamp), e.timeStamp - movedAt < 50 ? movedFrame : e.timeStamp)
     }
     if (caught) return fling(0)
-    // A click: turn to the row under the pointer.
-    const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-detent-index]')
-    const i = hit && el?.contains(hit) ? Number(hit.dataset.detentIndex) : NaN
-    if (i === i && nearest(i, bounds()) === i) goTo(i)
+    // A tap. On the centered row it belongs to the row's content (a button there just works). On any
+    // other row it turns the wheel to that row, and the click must not reach the content.
+    const i = rowAt(e.clientX, e.clientY)
+    if (i === i && i !== center() && nearest(i, bounds()) === i) {
+      suppress = e.timeStamp + 400
+      goTo(i)
+    }
+  }
+
+  /** The row under a point: rows tile the axis, so it is the one whose center is nearest (geometry
+   * works through inert rows and drum transforms, unlike hit-testing). */
+  function rowAt(x: number, y: number) {
+    let best = NaN
+    let dist = Infinity
+    for (const r of el?.querySelectorAll<HTMLElement>('[data-detent-index]') ?? []) {
+      const b = r.getBoundingClientRect()
+      const d = horizontal() ? Math.abs(x - b.left - b.width / 2) : Math.abs(y - b.top - b.height / 2)
+      if (d < dist) (dist = d), (best = +r.dataset.detentIndex!)
+    }
+    return best
   }
 
   function cancel() {
@@ -349,7 +365,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
       const flat = { ...b, loop: false, min: o.loop ? 0 : lo(), max: o.loop ? o.count - 1 : hi() }
       const i = nearest(end ? flat.max : flat.min, flat, end ? -1 : 1)
       if (i === i) scrollTo(i)
-    } else if (o.getLabel && k.length === 1 && o.count) {
+    } else if (o.getLabel && k.length === 1 && o.count && e.target === el) {
       typed = e.timeStamp - typedAt > TYPEAHEAD_RESET ? k.toLowerCase() : typed + k.toLowerCase()
       typedAt = e.timeStamp
       const from = mod(motion ? target : center(), o.count)
@@ -362,6 +378,8 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
       }
     } else return
     e.preventDefault()
+    // From a control inside a row: keep focus on the wheel (that row may turn inert off-center).
+    if (e.target !== el) el?.focus({ preventScroll: true })
   }
 
   // ── Wiring ──────────────────────────────────────────────────────────────

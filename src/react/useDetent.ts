@@ -51,6 +51,11 @@ export interface DetentOptions<T> extends PhysicsOptions {
   loading?: boolean
   onHeaderRest?: () => void
   onFooterRest?: () => void
+  /**
+   * Rows hold interactive content (buttons, links, inputs): rows off the center are inert, so Tab only
+   * reaches the centered row's controls and a tap there activates them. Off-center taps turn the wheel.
+   */
+  interactive?: boolean
   /** Extra rows rendered beyond the visible ones on each side. */
   overscan?: number
   /** Animate programmatic value changes. */
@@ -106,7 +111,7 @@ export interface DetentFrame {
 export interface DetentApi<T> {
   getRootProps(props?: DetentPropsIn): DetentProps
   getTrackProps(props?: DetentPropsIn): DetentProps
-  /** Visually hidden live region announcing the selection when the wheel settles. */
+  /** Visually hidden live region announcing the selection when the wheel settles. Render it next to the root, not inside it. */
   getLiveRegionProps(props?: DetentPropsIn): DetentProps
   rows: DetentRow<T>[]
   header: DetentSlot
@@ -228,7 +233,10 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
       track.style.transform = transform(x)
       for (const r of track.children as unknown as HTMLElement[]) {
         const j = r.dataset.detentIndex
-        if (j) for (const [k, val] of vars(+j - c, visible)) r.style.setProperty(k, val)
+        if (!j) continue
+        for (const [k, val] of vars(+j - c, visible)) r.style.setProperty(k, val)
+        const off = Math.abs(+j - c) >= 0.5
+        if (o.interactive && r.inert !== off) r.inert = off
       }
     }
     // Keep the rendered window ahead of the motion (lead by ~3 frames of travel).
@@ -367,8 +375,10 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
       const index = itemAt(j)
       if (index < 0) continue
       const disabled = !enabled(j)
+      // Name options from getLabel: rich or inert (interactive) content may not name them otherwise.
+      const named = o.getLabel || o.interactive ? { 'aria-label': label(index) } : {}
       rows.push({
-        ...slot(j, 'option', disabled ? { 'aria-disabled': true, 'data-disabled': '' } : {}),
+        ...slot(j, 'option', disabled ? { ...named, 'aria-disabled': true, 'data-disabled': '' } : named),
         item: o.items[index] as T,
         index,
         key: loop ? `${keys[index]}:${Math.floor(j / n)}` : (keys[index] as Key),
