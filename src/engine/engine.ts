@@ -64,9 +64,9 @@ export interface Engine {
 
 const IDLE = 80 // ms without wheel events that ends a wheel gesture
 /** Rows per px of accelerated mouse-wheel delta (macOS deltas are document pixels, far larger than rows). */
-const WHEEL_GAIN = 0.0018
-/** Coast retention for mouse-wheel flings (τ ≈ 100ms): it stops soon after the wheel does. */
-const WHEEL_DECAY = 0.99
+const WHEEL_GAIN = 0.005
+/** Coast retention for mouse-wheel flings (τ ≈ 200ms): a short, natural glide after the wheel stops. */
+const WHEEL_DECAY = 0.995
 const TYPEAHEAD_RESET = 600
 
 export function createEngine(initialIndex: number, options: EngineOptions): Engine {

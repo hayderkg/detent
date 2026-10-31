@@ -69,8 +69,8 @@ describe('wheel replay (real recordings)', () => {
     it(`${label}: glides (no teleporting), covers a sane distance, lands on a row`, () => {
       const r = replay(take(mouse, label))
       expect(r.maxStepRows, 'rows per frame').toBeLessThan(3.5) // maxVelocity 8px/ms × 16ms / 40px ≈ 3.2
-      expect(r.final - START).toBeGreaterThan(10)
-      expect(r.final - START).toBeLessThan(150)
+      expect(r.final - START).toBeGreaterThan(40)
+      expect(r.final - START).toBeLessThan(250)
       expect(r.x % SIZE).toBe(0)
     })
     it(`${label}, old behaviour: jumped many rows per event`, () => {
