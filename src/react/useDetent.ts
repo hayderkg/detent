@@ -117,6 +117,8 @@ export interface DetentApi<T> {
   scrollTo(index: number, options?: { animate?: boolean }): void
   /** Per-frame position, outside React. Returns an unsubscribe function. */
   subscribe(fn: (frame: DetentFrame) => void): () => void
+  /** Right-to-left (detected after mount, or from `dir`): horizontal wheels run from the right. */
+  rtl: boolean
   engine: Engine
 }
 
@@ -320,7 +322,11 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
   /** Mount: pick up the text direction from the DOM, then attach input. */
   function mount() {
     if (!root) return
-    if (o.dir === undefined) engine.set({ rtl: (rtl = getComputedStyle(root).direction === 'rtl') })
+    const r = o.dir ? o.dir === 'rtl' : getComputedStyle(root).direction === 'rtl'
+    if (r !== rtl) {
+      engine.set({ rtl: (rtl = r) })
+      update()
+    }
     committing = true // attach renders once; inside a layout effect, re-render without flushSync
     const detach = engine.attach(root)
     committing = false
@@ -424,6 +430,7 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
         subs.add(fn)
         return () => void subs.delete(fn)
       },
+      rtl,
       engine,
     }
   }
