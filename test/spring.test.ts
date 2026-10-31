@@ -8,7 +8,7 @@ describe('spring', () => {
   for (const zeta of [0.3, 0.7, 1, 1.6]) {
     it(`matches numerical integration (ζ=${zeta})`, () => {
       const c = cfg(170, zeta)
-      const m = spring(0, 100, -0.8, c)
+      const m = spring(0, 100, -0.8, c, Infinity, 1e-6)
       for (const t of [0, 16, 50, 120, 300, 600]) {
         const ref = rk4(0, 100, -0.8, c.stiffness, c.damping, c.mass, t)
         const s = m.at(t)

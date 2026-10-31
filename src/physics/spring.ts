@@ -1,8 +1,12 @@
 import type { Motion, SpringConfig } from './types'
 
-/** Rest thresholds: 0.05px and 0.005px/ms (5px/s). Below both, we land exactly on the target. */
-export const REST_DELTA = 0.05
-export const REST_SPEED = 0.005
+/**
+ * Default rest thresholds: half a CSS px and 0.01px/ms (10px/s). Below both, the motion lands exactly
+ * on its target. Pass `restDelta = 0.5 / devicePixelRatio` so the final jump is under half a device
+ * pixel: invisible, and it cuts the sub-pixel creep that reads as blurry text.
+ */
+export const REST_DELTA = 0.5
+export const REST_SPEED = 0.01
 const STEP = 4 // ms, settle-time search resolution
 const MAX_T = 10_000
 
@@ -52,10 +56,10 @@ function solver(d0: number, v0: number, w0: number, z: number) {
   }
 }
 
-function settle(f: (ms: number) => [number, number]): number {
+function settle(f: (ms: number) => [number, number], restDelta: number): number {
   for (let t = 0; t < MAX_T; t += STEP) {
     const [d, v] = f(t)
-    if (Math.abs(d) < REST_DELTA && Math.abs(v) < REST_SPEED) return t
+    if (Math.abs(d) < restDelta && Math.abs(v) < REST_SPEED) return t
   }
   return MAX_T
 }
@@ -71,15 +75,16 @@ export function spring(
   v0: number,
   config: SpringConfig,
   maxDuration = Infinity,
+  restDelta = REST_DELTA,
 ): Motion {
   const z = dampingRatio(config)
   let w0 = Math.sqrt(config.stiffness / config.mass)
   let f = solver(from - to, v0, w0, z)
-  let duration = settle(f)
+  let duration = settle(f, restDelta)
   for (let i = 0; i < 4 && duration > maxDuration; i++) {
     w0 *= (duration / maxDuration) * 1.05
     f = solver(from - to, v0, w0, z)
-    duration = settle(f)
+    duration = settle(f, restDelta)
   }
   return {
     to,

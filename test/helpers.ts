@@ -4,11 +4,11 @@ import type { Motion } from '../src'
 export function sample(m: Motion, hz: number, jitter = 0, seed = 1) {
   let r = seed
   const rand = () => ((r = (r * 16807) % 2147483647) / 2147483647)
-  const out: { t: number; x: number; v: number }[] = []
+  const out: { t: number; x: number; v: number; phase: string }[] = []
   let t = 0
   while (t <= m.duration + 1000 / hz) {
     const s = m.at(t)
-    out.push({ t, x: s.x, v: s.v })
+    out.push({ t, x: s.x, v: s.v, phase: s.phase })
     t += (1000 / hz) * (1 + (rand() - 0.5) * jitter)
   }
   return out

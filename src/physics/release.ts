@@ -13,6 +13,8 @@ export interface ReleaseOptions {
   snapDuration: number
   /** Coast → spring handoff distance, in rows. */
   handoff?: number
+  /** Rest when within this many px of the target (use 0.5 / devicePixelRatio). */
+  restDelta?: number
 }
 
 export interface Release extends Motion {
@@ -55,7 +57,7 @@ export function release(x: number, v: number, size: number, b: Bounds, o: Releas
   const lo = b.min * size
   const hi = b.max * size
   const inside = b.loop || (x >= lo && x <= hi)
-  const springTo = (x0: number, v0: number) => spring(x0, X, v0, o.spring, o.snapDuration)
+  const springTo = (x0: number, v0: number) => spring(x0, X, v0, o.spring, o.snapDuration, o.restDelta)
   const done = (m: Motion): Release => ({ ...m, index })
 
   // Edge bounce: thrown past the end from inside → coast to the wall, spring back from it.

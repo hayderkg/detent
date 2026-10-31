@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { crossings, presets, project, release, resolvePhysics, type Bounds } from '../src'
+import { crossings, presets, project, release, resolvePhysics, tau, type Bounds } from '../src'
 import { sample } from './helpers'
 
 const H = 36
@@ -30,8 +30,11 @@ describe('release', () => {
       const s = sample(m, 1000)
       for (let i = 1; i < s.length; i++) {
         const a = s[i - 1]!, b = s[i]!
+        if (b.t >= m.duration) { expect(Math.abs(b.x - a.x)).toBeLessThan(0.5); continue } // the rest landing
         expect(Math.abs(b.x - a.x)).toBeLessThan(Math.abs(a.v) * 1 + 0.05) // no jumps
-        expect(Math.abs(b.v - a.v)).toBeLessThan(0.02) // no velocity kicks
+        // Deceleration never exceeds the fastest allowed coast (τ' ≥ 0.6τ) plus a gentle spring.
+        expect(Math.abs(b.v - a.v)).toBeLessThan(Math.abs(a.v) / (0.6 * tau(ios.decay)) + 0.01)
+        if (a.phase !== b.phase) expect(Math.abs(m.at(b.t).v - m.at(b.t - 0.01).v)).toBeLessThan(0.001)
       }
     }
   })
@@ -116,11 +119,26 @@ describe('release', () => {
     expect(ticks(144)).toEqual(ticks(60))
   })
 
-  it('settles in an iOS-like time for a typical flick', () => {
-    // iOS picker: a medium flick (~1.5px/ms) glides and settles in roughly 1–2.5s.
-    const m = release(50 * H, 1.5, H, bounds, ios)
-    expect(m.duration).toBeGreaterThan(800)
-    expect(m.duration).toBeLessThan(2500)
+  it('a long ios throw reaches rest well under 2s, even at DPR 3', () => {
+    for (const v of [2, 4, 8, -8]) {
+      const m = release(5000 * H, v, H, { ...open, max: 9999, count: 10000 }, { ...ios, restDelta: 0.5 / 3 })
+      expect(m.duration).toBeLessThan(1500)
+    }
+  })
+
+  it('rests within half a device pixel of the row, then lands exactly on it', () => {
+    for (const dpr of [1, 2, 3]) {
+      const m = release(500 * H, 1.7, H, open, { ...ios, restDelta: 0.5 / dpr })
+      const before = m.at(m.duration - 0.01)
+      expect(Math.abs(before.x - m.index * H)).toBeLessThan(0.5 / dpr)
+      expect(Math.abs(before.v)).toBeLessThan(0.01)
+      expect(m.at(m.duration)).toMatchObject({ x: m.index * H, v: 0 })
+    }
+  })
+
+  it('scroll preset keeps UIScrollView .normal glides (τ ≈ 500ms)', () => {
+    const m = release(500 * H, 1, H, open, presets.scroll)
+    expect(m.index - 500).toBe(14)
   })
 })
 
