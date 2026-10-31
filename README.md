@@ -60,7 +60,7 @@ The selection marker is a first-class part: shape, material, style, and fit.
 />
 ```
 
-`fit: 'content'` sizes it to the centered item and morphs it as items pass; on a throw it holds steady while rows cross the center, then catches the target item over the last `catchRows` (1.5) rows, arriving with it. Shapes: `rounded`, `pill`, `lines`, `underline`, `brackets`, `dot`, `needle`, `none`. Materials: `solid`, `glass`, `outline`, `gradient-border`. `color` can be a function of the item (it cross-fades). Live values are CSS variables: `--indicator-w`, `--indicator-h`, `--indicator-progress`, `--indicator-velocity`, `--indicator-color`.
+`fit: 'content'` sizes it to the centered item and morphs it as items pass; on a throw it holds steady while rows cross the center, then catches the target item over the last `catchRows` (1.5) rows, arriving with it. Set `morph: 'naive'` to recompute the width from the two rows around the center every frame instead (useful to compare; it jitters on fast throws). Shapes: `rounded`, `pill`, `lines`, `underline`, `brackets`, `dot`, `needle`, `none`. Materials: `solid`, `glass`, `outline`, `gradient-border`. `color` can be a function of the item (it cross-fades). Live values are CSS variables: `--indicator-w`, `--indicator-h`, `--indicator-progress`, `--indicator-velocity`, `--indicator-color`.
 
 ## Size
 
@@ -68,12 +68,16 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 
 | Import | Size |
 | --- | --- |
-| `useDetent` (physics + engine + hook) | 6.55 kB |
-| `<Detent>` (styled component: core + every visual prop + indicator) | 12.59 kB |
-| `createEngine` (physics + engine, no React) | 4.13 kB |
+| `useDetent` (physics + engine + hook) | 6.68 kB |
+| `<Detent>` (styled component: core + every visual prop + indicator) | 12.77 kB |
+| `createEngine` (physics + engine, no React) | 4.26 kB |
 | `detent/feedback` (haptics, tick sound) | 0.58 kB |
 
 Presets other than the default are tree-shaken unless you import `presets`.
+
+## Mouse wheels
+
+`wheelMode` (default `'auto'`) tells a notched mouse wheel from a trackpad by the first event of a gesture: each notch moves exactly one row, and the accelerated bursts of a fast spin (or a free-spinning wheel like the MX Master) become a throw. Trackpads keep 1:1 tracking with momentum. Use `'smooth'` to follow every delta 1:1, or `'step'` to always step.
 
 ## Feedback (opt-in)
 
