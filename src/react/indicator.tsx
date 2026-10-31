@@ -35,6 +35,11 @@ export interface IndicatorOptions<T> {
    * programmatic moves). Before that it holds steady. Default 1.5.
    */
   catchRows?: number
+  /**
+   * 'smart' (default): speed-aware smoothing, holds while rows pass, catches the target. 'naive': recompute the
+   * width every frame from the two rows around the center (flickers on fast spins; useful to compare).
+   */
+  morph?: 'smart' | 'naive'
 }
 
 export interface IndicatorState<T> {
@@ -120,7 +125,17 @@ export function useIndicator<T>(d: DetentApi<T>, root: { current: HTMLElement | 
       }
     }
 
-    if (f.mode === 'coast' || f.mode === 'spring') {
+    if (o.morph === 'naive' && f.mode !== 'idle') {
+      // The straightforward version: whatever pair of rows is around the center, every frame.
+      const i = Math.floor(f.offset)
+      const fr = f.offset - i
+      const a = size(i) ?? fallback
+      const b = size(i + 1) ?? fallback
+      w = lerp(a.w, b.w, fr)
+      if (!isNaN(a.h) && !isNaN(b.h)) h = lerp(a.h, b.h, fr)
+      if (colorFn) color = mix(colorAt(i), colorAt(i + 1), fr)
+      st.motion = NaN
+    } else if (f.mode === 'coast' || f.mode === 'spring') {
       // A throw, a key, a programmatic move. The indicator holds steady while other rows cross the center,
       // then catches the target item over the last `catchRows` (single-row moves: over the whole move), so it
       // arrives with the item, not before it.
