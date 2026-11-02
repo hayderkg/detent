@@ -4,7 +4,23 @@ import { resolvePhysics, type PhysicsOptions } from '../presets'
 
 export type Mode = 'idle' | 'drag' | 'coast' | 'spring' | 'wheel'
 export type Orientation = 'vertical' | 'horizontal'
+/**
+ * How the mouse wheel and trackpad drive the wheel.
+ * - `'auto'` (default): each gesture is read from its first event. A notched mouse wheel steps one row per notch
+ *   (`wheelStep`); its fast, accelerated bursts become velocity instead, so the wheel moves continuously while they
+ *   come and coasts briefly (≈200 ms) once they stop. A trackpad is followed 1:1, momentum included.
+ * - `'step'`: every wheel event is a notch: `wheelStep` rows (a page for page-mode deltas), whatever its size.
+ *   Never a throw; a fast spin is one row per event.
+ * - `'smooth'`: every delta is followed 1:1 in pixels, like native scrolling, mouse wheels included.
+ * In every mode the wheel lands on a row once the events stop.
+ */
 export type WheelMode = 'auto' | 'step' | 'smooth'
+/**
+ * Holding an arrow key: after each `[ms, rate]` stage, the key's repeat moves `rate` rows per repeat instead of one.
+ * On by default (`true`: `[[2000, 1.5], [4000, 2.5]]`); `false` keeps one row per repeat. Steps still land only on
+ * enabled rows; letting go settles at once.
+ */
+export type KeyAcceleration = boolean | [ms: number, rate: number][]
 
 /**
  * Positions are "virtual" indexes along the wheel: items are 0..count-1, a header row is -1, extra
@@ -31,6 +47,7 @@ export interface EngineOptions extends PhysicsOptions {
   dragRatio?: number
   wheelStep?: number
   wheelMode?: WheelMode
+  keyAcceleration?: KeyAcceleration
   /** Every frame (and on any position change): display position in px, device-pixel-rounded when slow. */
   onRender?: (x: number, v: number) => void
   onMode?: (mode: Mode) => void
@@ -47,7 +64,7 @@ export interface Engine {
   sync(): void
   /** Turn to virtual index `index` (spring), or jump when `animate` is false or motion is reduced. */
   goTo(index: number, animate?: boolean): void
-  /** Turn to item `index` by the shortest way round (loop-aware). */
+  /** Turn to item `index` by the shortest way round (loop-aware); a disabled item turns to its nearest enabled one. */
   scrollTo(index: number, animate?: boolean): void
   /** Re-base after rows were inserted/removed: moves everything by `rows` without motion. */
   shift(rows: number): void
@@ -68,6 +85,10 @@ const WHEEL_GAIN = 0.005
 /** Coast retention for mouse-wheel flings (τ ≈ 200ms): a short, natural glide after the wheel stops. */
 const WHEEL_DECAY = 0.995
 const TYPEAHEAD_RESET = 600
+const ACCEL: [number, number][] = [
+  [2000, 1.5],
+  [4000, 2.5],
+]
 
 export function createEngine(initialIndex: number, options: EngineOptions): Engine {
   let o = options
@@ -157,8 +178,21 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     if (!raf) raf = requestAnimationFrame(frame)
   }
 
+  /**
+   * Bring the position and velocity up to now. Input that changes a running motion (a wheel event, a key) can come
+   * several times between frames; each must continue from where the motion is now, not from the last painted
+   * frame, or every event restarts the motion's clock and the wheel stalls for as long as the events keep coming.
+   */
+  function catchUp() {
+    if (!motion) return
+    const s = motion.at(Math.max(0, performance.now() - t0))
+    raw = s.x
+    v = s.v
+  }
+
   /** Release at the current position with velocity `vel`: project, snap, glide. */
   function fling(vel: number, at?: number, decay?: number) {
+    catchUp()
     const ph = decay ? { ...physics(), decay } : physics()
     const r = release(raw, reduced ? 0 : vel, size(), bounds(), reduced ? { ...ph, snapDuration: 200 } : ph)
     target = r.index
@@ -166,6 +200,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   }
 
   function goTo(index: number, animate = true) {
+    catchUp()
     target = index
     if (!animate || reduced || !el) {
       stop()
@@ -175,10 +210,16 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     run(spring(raw, index * size(), v, p.spring, p.snapDuration, 0.5 / dpr()))
   }
 
+  /** Turn to item `index`, or the nearest enabled one: like keys and gestures, never onto a disabled item. */
   function scrollTo(item: number, animate?: boolean) {
-    if (!o.loop) return goTo(item, animate)
+    // The nearest enabled item, counted the way round the end when looping (in a loop of 5, item 4 is one step
+    // from item 0).
+    const n = nearest(Math.round(item), bounds())
+    if (n !== n) return // nothing enabled
+    if (!o.loop) return goTo(n, animate)
+    const i = mod(n, o.count)
     const base = motion ? target : center()
-    let k = mod(item - base, o.count)
+    let k = mod(i - base, o.count)
     if (k > o.count / 2) k -= o.count
     goTo(base + k, animate)
   }
@@ -316,6 +357,8 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   let wheelAt = -1e9
   let wheelTimer: ReturnType<typeof setTimeout> | undefined
   let notched = false
+  /** wheelMode 'step': every event is one notch, whatever its size (never a throw). */
+  let stepping = false
   let ours = false
   let rate = 0
 
@@ -331,7 +374,8 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     const gap = e.timeStamp - wheelAt
     if (gap > IDLE) {
       const wm = o.wheelMode ?? 'auto'
-      notched = wm === 'step' || (wm === 'auto' && (classic || a >= 10))
+      stepping = wm === 'step'
+      notched = stepping || (wm === 'auto' && (classic || a >= 10))
       // A plain mouse wheel (vertical notches) also drives horizontal wheels.
       ours = notched || x === h
       rate = 0
@@ -343,7 +387,8 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     const delta = x ? d * sign() : d
     if (notched) {
       // One notch, one row (repeated notches accumulate on the target).
-      if (classic || a < 50) return step(Math.sign(delta) * (e.deltaMode === 2 ? o.visibleCount - 1 : o.wheelStep ?? 1))
+      const notch = e.deltaMode === 2 ? o.visibleCount - 1 : (o.wheelStep ?? 1)
+      if (classic || a < 50 || stepping) return step(Math.sign(delta) * notch)
       // An accelerated burst (macOS: 100–1800px every ~15ms when the wheel spins fast or free): following those
       // pixels would teleport dozens of rows per event. Turn the wheel's rate into velocity instead, and let the
       // physics glide and land, with a shorter coast than a throw (when the mouse wheel stops, so should we).
@@ -377,6 +422,28 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   // ── Keyboard ────────────────────────────────────────────────────────────
   let typed = ''
   let typedAt = 0
+  /** The arrow key being held, since when, and the fraction of a row its repeats have built up. */
+  let held = ''
+  let heldAt = 0
+  let carry = 0
+  const letGo = () => (held = '')
+
+  function arrow(dir: number, e: KeyboardEvent) {
+    const a = o.keyAcceleration ?? true
+    if (!a || !e.repeat || e.key !== held) {
+      held = e.key
+      heldAt = e.timeStamp
+      carry = 0
+      return step(dir)
+    }
+    let rate = 1
+    for (const [ms, r] of a === true ? ACCEL : a) if (e.timeStamp - heldAt >= ms) rate = r
+    const rows = Math.floor((carry += rate))
+    carry -= rows
+    // Never far ahead of what is on screen (2 + 2 × rate rows, so plain repeats are never held back): when the
+    // key comes up, the wheel settles on its spring instead of trailing on for seconds.
+    if (rows && Math.abs((motion ? target : center()) - raw / size()) < 2 + 2 * rate) step(dir * rows)
+  }
 
   function key(e: KeyboardEvent) {
     if (o.disabled || e.altKey || e.ctrlKey || e.metaKey || editable(e)) return
@@ -386,8 +453,8 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     const k = e.key
     const fwd = sign() < 0 ? 'ArrowLeft' : 'ArrowRight'
     const back = sign() < 0 ? 'ArrowRight' : 'ArrowLeft'
-    if (k === 'ArrowDown' || (h && k === fwd)) step(1)
-    else if (k === 'ArrowUp' || (h && k === back)) step(-1)
+    if (k === 'ArrowDown' || (h && k === fwd)) arrow(1, e)
+    else if (k === 'ArrowUp' || (h && k === back)) arrow(-1, e)
     else if (k === 'PageDown') step(page)
     else if (k === 'PageUp') step(-page)
     else if (k === 'Home' || k === 'End') {
@@ -418,6 +485,8 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     ['pointerdown', down],
     ['wheel', wheel, { passive: false }],
     ['keydown', key],
+    ['keyup', letGo],
+    ['focusout', letGo],
     ['click', click, { capture: true }],
     ['dragstart', noDrag],
   ]
@@ -454,8 +523,21 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   return {
     attach,
     set(next) {
+      const was = size()
       o = { ...o, ...next }
       p = resolvePhysics(o)
+      // A new row size keeps the same rows centered: positions are px, so rescale them (and any motion in
+      // flight) instead of letting the index drift (2 rows at 40px would read as 1 row at 80px).
+      const k = size() / was
+      if (k !== 1) {
+        raw *= k
+        shown *= k
+        startRaw *= k
+        tracker.reset()
+        const m = motion
+        if (m) motion = { to: m.to * k, duration: m.duration, at: (t) => ((s) => ({ ...s, x: s.x * k, v: s.v * k }))(m.at(t)) }
+        render()
+      }
     },
     sync: render,
     goTo,

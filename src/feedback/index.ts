@@ -29,33 +29,54 @@ export interface TickSoundOptions {
   fullAt?: number
   /** Minimum ms between clicks. Default 22. */
   interval?: number
+  /** Velocity changes the click timbre: true, or intensity 0–1. Off by default. */
+  dynamicTimbre?: boolean | number
+}
+
+/**
+ * One audio context for every tickSound handler. Starting it costs Chrome ~100 ms of main thread, so a tick never
+ * starts it (that would stall the start of a spin): it starts once ticks have been quiet for a second (a coast ends
+ * with slow, sparse ticks), and only after the page has had a gesture (before that it could not play anyway; a mouse
+ * wheel is not one). Until then, ticks are silent.
+ */
+let audio: [AudioContext, AudioBuffer] | undefined
+let timer: ReturnType<typeof setTimeout> | undefined
+
+function soon() {
+  clearTimeout(timer)
+  timer = setTimeout(() => {
+    if (audio || navigator.userActivation?.hasBeenActive === false) return
+    const ctx = new AudioContext()
+    const len = Math.ceil(ctx.sampleRate * 0.006)
+    const click = ctx.createBuffer(1, len, ctx.sampleRate)
+    const d = click.getChannelData(0)
+    // Decaying noise with a fast attack: reads as a detent, not a beep.
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (len / 6))
+    audio = [ctx, click]
+  }, 1000)
 }
 
 /** A soft mechanical click from a few ms of filtered noise, louder the faster the wheel spins. */
-export function tickSound({ volume = 0.5, fullAt = 2, interval = 22 }: TickSoundOptions = {}): TickHandler {
-  let ctx: AudioContext | undefined
-  let click: AudioBuffer | undefined
+export function tickSound({ volume = 0.5, fullAt = 2, interval = 22, dynamicTimbre = false }: TickSoundOptions = {}): TickHandler {
   let last = -Infinity
+  if (typeof AudioContext !== 'undefined') soon()
   return (_, velocity) => {
+    if (typeof AudioContext === 'undefined') return
+    if (!audio) return soon()
     const now = performance.now()
-    if (now - last < interval || typeof AudioContext === 'undefined') return
+    if (now - last < interval) return
     last = now
-    if (!ctx) {
-      ctx = new AudioContext()
-      const len = Math.ceil(ctx.sampleRate * 0.006)
-      click = ctx.createBuffer(1, len, ctx.sampleRate)
-      const d = click.getChannelData(0)
-      // Decaying noise with a fast attack: reads as a detent, not a beep.
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (len / 6))
-    }
+    const [ctx, click] = audio
     if (ctx.state === 'suspended') void ctx.resume()
     const src = ctx.createBufferSource()
     const filter = ctx.createBiquadFilter()
     const gain = ctx.createGain()
-    src.buffer = click!
+    src.buffer = click
     filter.type = 'bandpass'
-    filter.frequency.value = 2400
-    filter.Q.value = 1.2
+    const speed = Number.isFinite(velocity) ? Math.min(1, Math.abs(velocity) / Math.max(0.01, fullAt)) : 0
+    const amount = dynamicTimbre === true ? 1 : typeof dynamicTimbre === 'number' && Number.isFinite(dynamicTimbre) ? Math.max(0, Math.min(1, dynamicTimbre)) : 0
+    filter.frequency.value = 2400 + amount * (speed * 1600 - 400)
+    filter.Q.value = 1.2 - amount * speed * 0.5
     gain.gain.value = volume * (0.25 + 0.75 * Math.min(1, Math.abs(velocity) / fullAt))
     src.connect(filter).connect(gain).connect(ctx.destination)
     src.start()

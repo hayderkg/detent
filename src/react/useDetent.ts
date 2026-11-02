@@ -9,7 +9,7 @@ import {
   type RefCallback,
 } from 'react'
 import { flushSync } from 'react-dom'
-import { createEngine, type Engine, type EngineOptions, type Mode, type Orientation, type WheelMode } from '../engine/engine'
+import { createEngine, type Engine, type EngineOptions, type Mode, type KeyAcceleration, type Orientation, type WheelMode } from '../engine/engine'
 import { mod } from '../physics/snap'
 import type { PhysicsOptions } from '../presets'
 
@@ -43,6 +43,8 @@ export interface DetentOptions<T> extends PhysicsOptions {
   dragRatio?: number
   wheelStep?: number
   wheelMode?: WheelMode
+  /** Holding an arrow key speeds up after 2 s (×1.5) and 4 s (×2.5), or after your own `[ms, rate]` stages. On by default; `false` turns it off. */
+  keyAcceleration?: KeyAcceleration
   /** A non-selectable row before the first item (e.g. a search field) that the wheel can rest on. Ignored when looping. */
   header?: boolean
   /** A non-selectable row after the last item that the wheel can rest on. Ignored when looping. */
@@ -75,9 +77,9 @@ export interface DetentOptions<T> extends PhysicsOptions {
 
 /** Props you pass in: any element ref is accepted. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type DetentPropsIn = HTMLAttributes<HTMLElement> & { ref?: Ref<any> }
+export type DetentElementPropsIn = HTMLAttributes<HTMLElement> & { ref?: Ref<any> }
 /** Props you spread: a callback ref fits any element type. */
-export type DetentProps = HTMLAttributes<HTMLElement> & { ref?: RefCallback<HTMLElement> }
+export type DetentElementProps = HTMLAttributes<HTMLElement> & { ref?: RefCallback<HTMLElement> }
 
 interface Slot {
   /** Position on the wheel (virtual index). */
@@ -86,7 +88,7 @@ interface Slot {
   offset: number
   /** The wheel rests on this row. */
   selected: boolean
-  getProps(props?: DetentPropsIn): DetentProps
+  getProps(props?: DetentElementPropsIn): DetentElementProps
 }
 
 export interface DetentRow<T> extends Slot {
@@ -112,10 +114,10 @@ export interface DetentFrame {
 }
 
 export interface DetentApi<T> {
-  getRootProps(props?: DetentPropsIn): DetentProps
-  getTrackProps(props?: DetentPropsIn): DetentProps
+  getRootProps(props?: DetentElementPropsIn): DetentElementProps
+  getTrackProps(props?: DetentElementPropsIn): DetentElementProps
   /** Visually hidden live region announcing the selection when the wheel settles. Render it next to the root, not inside it. */
-  getLiveRegionProps(props?: DetentPropsIn): DetentProps
+  getLiveRegionProps(props?: DetentElementPropsIn): DetentElementProps
   rows: DetentRow<T>[]
   header: DetentSlot
   footer: DetentSlot
@@ -150,78 +152,100 @@ function merge(own: (el: HTMLElement | null) => void, theirs?: Ref<HTMLElement>)
   }
 }
 
+/** Layout derived from the options: computed during render (pure), made live in the layout phase. */
+interface Layout<T> {
+  o: DetentOptions<T>
+  keys: Key[]
+  n: number
+  size: number
+  visible: number
+  vertical: boolean
+  loop: boolean
+  /** Track offset that centers row 0. */
+  base: number
+  head: boolean
+  loadAt: number
+  footAt: number
+}
+
 /**
  * Everything stateful lives in this closure, created once per hook instance: plain locals instead of
  * refs and states (smaller, and no stale closures). React only re-renders when rows or selection change.
+ *
+ * Render stays pure: `derive` computes the next layout without touching live state, `api` builds the
+ * render from it, and `commit` (layout phase) makes it live. A render React discards (transitions,
+ * Suspense) leaves the engine and the event handlers on the layout that is actually on screen.
  */
 function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
-  let o = init
-  let items: readonly T[] | undefined
-  let keys: Key[] = []
-  let prevKeys: Key[] | undefined
-  let n = 0
-  let size = 36
-  let visible = 5
-  let vertical = true
-  let loop = false
-  let base = 0
-  let head = false
-  let loadAt = NaN
-  let footAt = NaN
+  // Keys, recomputed only when items or getKey change: a memo keyed by its inputs, safe to fill during render.
+  let memo: { items?: readonly T[]; getKey?: DetentOptions<T>['getKey']; keys: Key[] } = { keys: [] }
+  const keyFn =
+    (o: DetentOptions<T>) =>
+    (item: T, i: number): Key =>
+      o.getKey ? o.getKey(item, i) : typeof item === 'string' || typeof item === 'number' ? item : i
+
+  function derive(o: DetentOptions<T>): Layout<T> {
+    if (o.items !== memo.items || o.getKey !== memo.getKey) memo = { items: o.items, getKey: o.getKey, keys: o.items.map(keyFn(o)) }
+    const n = o.items.length
+    const size = Math.max(1, o.itemSize ?? 36) || 36
+    const visible = Math.max(1, Math.round(o.visibleCount ?? 5)) || 5
+    const loop = !!o.loop
+    // Virtual layout: [header -1] items 0..n-1 [loading n] [footer].
+    return {
+      o,
+      keys: memo.keys,
+      n,
+      size,
+      visible,
+      vertical: o.orientation !== 'horizontal',
+      loop,
+      base: ((visible - 1) / 2) * size,
+      head: !loop && !!o.header,
+      loadAt: !loop && o.loading ? n : NaN,
+      footAt: !loop && o.footer ? n + (o.loading ? 1 : 0) : NaN,
+    }
+  }
+
+  /** The live layout (what is on screen), also unpacked into locals for the per-frame code. */
+  let L = derive(init)
+  let { o, keys, n, size, visible, vertical, loop, base, head, loadAt, footAt } = L
+  const live = (next: Layout<T>) => ({ o, keys, n, size, visible, vertical, loop, base, head, loadAt, footAt } = L = next)
+
+  const keyOf = (S: Layout<T>, v: T | undefined) => (v === undefined ? undefined : keyFn(S.o)(v, -1))
+  const label = (S: Layout<T>, i: number) => (S.o.getLabel ? S.o.getLabel(S.o.items[i] as T, i) : String(S.o.items[i]))
+  const itemAt = (S: Layout<T>, j: number) => (S.loop ? mod(j, S.n) : j >= 0 && j < S.n ? j : -1)
+  const enabled = (S: Layout<T>, j: number) => {
+    const i = itemAt(S, j)
+    return i < 0 ? j !== S.loadAt : !S.o.isDisabled?.(S.o.items[i] as T, i)
+  }
+  const span = (S: Layout<T>, c: number, lead = 0): [number, number] => {
+    const half = (S.visible - 1) / 2
+    const over = S.o.overscan ?? 3
+    return [Math.floor(c - half) - over - Math.max(0, -lead), Math.ceil(c + half) + over + Math.max(0, lead)]
+  }
+
   let rtl = init.dir === 'rtl'
+  /** The `dir` prop as of the last commit: a change re-reads the direction (from the prop, or the DOM). */
+  let dirProp = init.dir
   let root: HTMLElement | null = null
   let track: HTMLElement | null = null
-  let win: [number, number]
   let announce = ''
   let endFor = -1
   let spinning = false
   let committing = false
   const subs = new Set<(f: DetentFrame) => void>()
 
-  const getKey = (item: T, i: number): Key =>
-    o.getKey ? o.getKey(item, i) : typeof item === 'string' || typeof item === 'number' ? item : i
-  const keyOf = (v: T | undefined) => (v === undefined ? undefined : getKey(v, -1))
-
-  /** Derive layout from the latest options (render phase: no side effects outside these locals). */
-  function derive(next: DetentOptions<T>) {
-    o = next
-    if (o.items !== items) keys = (items = o.items).map(getKey)
-    n = items.length
-    size = Math.max(1, o.itemSize ?? 36) || 36
-    visible = Math.max(1, Math.round(o.visibleCount ?? 5)) || 5
-    vertical = o.orientation !== 'horizontal'
-    loop = !!o.loop
-    base = ((visible - 1) / 2) * size
-    // Virtual layout: [header -1] items 0..n-1 [loading n] [footer].
-    head = !loop && !!o.header
-    loadAt = !loop && o.loading ? n : NaN
-    footAt = !loop && o.footer ? n + (o.loading ? 1 : 0) : NaN
-  }
-  derive(init)
-
   /** Virtual index the wheel rests on (may be a header/footer). */
-  let rest = Math.max(0, keys.indexOf(keyOf(init.value ?? init.defaultValue) as Key))
+  let rest = Math.max(0, keys.indexOf(keyOf(L, init.value ?? init.defaultValue) as Key))
   /** Last item index the wheel rested on, and the last one reported through onChange. */
   let sel = rest
   let emitted = rest
-  let valueKey = keyOf(init.value)
+  let valueKey = keyOf(L, init.value)
+  let win = span(L, rest)
 
-  const span = (c: number, lead = 0): [number, number] => {
-    const half = (visible - 1) / 2
-    const over = o.overscan ?? 3
-    return [Math.floor(c - half) - over - Math.max(0, -lead), Math.ceil(c + half) + over + Math.max(0, lead)]
-  }
-  win = span(rest)
-
-  const label = (i: number) => (o.getLabel ? o.getLabel(o.items[i] as T, i) : String(o.items[i]))
-  const itemAt = (j: number) => (loop ? mod(j, n) : j >= 0 && j < n ? j : -1)
-  const enabled = (j: number) => {
-    const i = itemAt(j)
-    return i < 0 ? j !== loadAt : !o.isDisabled?.(o.items[i] as T, i)
-  }
-  const transform = (x: number) => {
-    const d = base - x
-    return vertical ? `translate3d(0,${d}px,0)` : `translate3d(${rtl ? -d : d}px,0,0)`
+  const transform = (S: Layout<T>, x: number) => {
+    const d = S.base - x
+    return S.vertical ? `translate3d(0,${d}px,0)` : `translate3d(${rtl ? -d : d}px,0,0)`
   }
   const publish = (velocity: number) =>
     subs.forEach((fn) => fn({ offset: engine.x / size, velocity, mode: engine.mode, target: engine.target, from: engine.from }))
@@ -233,20 +257,25 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
   function onRender(x: number, v: number) {
     const c = x / size
     if (track) {
-      track.style.transform = transform(x)
+      track.style.transform = transform(L, x)
+      const interactive = !!o.interactive
       for (const r of track.children as unknown as HTMLElement[]) {
         const j = r.dataset.detentIndex
         if (!j) continue
         for (const [k, val] of vars(+j - c, visible)) r.style.setProperty(k, val)
-        const off = Math.abs(+j - c) >= 0.5
-        if (o.interactive && r.inert !== off) r.inert = off
+        // Interactive rows: only the centered one takes focus and input. Off again: nothing stays inert.
+        const inert = interactive && Math.abs(+j - c) >= 0.5
+        if (r.inert !== inert) r.inert = inert
       }
     }
     // Keep the rendered window ahead of the motion (lead by ~3 frames of travel).
     const half = (visible - 1) / 2
     if (Math.floor(c - half) - 1 < win[0] || Math.ceil(c + half) + 1 > win[1]) {
-      win = span(c, Math.round((v * 48) / size))
-      committing || !track ? update() : flushSync(update)
+      win = span(L, c, Math.round((v * 48) / size))
+      // While the wheel moves (animation frames, pointer and wheel events), the rows must be there before this
+      // frame paints: flush. A jump made from code (scrollTo, possibly inside an effect, where flushSync is not
+      // allowed) renders normally.
+      moving() ? flushSync(update) : update()
     }
     if (!loop && o.onEndReached && n && c >= n - 1 - (o.endReachedThreshold ?? 5) && endFor !== n) {
       endFor = n
@@ -256,6 +285,9 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
     publish(v)
   }
 
+  let jumping = false
+  const moving = () => !committing && !jumping && !!track && engine.mode !== 'idle'
+
   function onMode(m: Mode) {
     if (root) root.dataset.state = m
     if (track) track.style.willChange = m === 'idle' ? '' : 'transform'
@@ -264,23 +296,26 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
   }
 
   function onTick(j: number, v: number) {
-    const i = itemAt(j)
+    const i = itemAt(L, j)
     if (i < 0) return
     o.onTick?.(i, v)
-    if (o.changeOn === 'tick' && enabled(j)) emit(i)
+    if (o.changeOn === 'tick' && enabled(L, j)) emit(i)
   }
 
   function onSettle(j: number) {
     rest = j
-    const i = itemAt(j)
-    if (j < 0) o.onHeaderRest?.()
-    else if (j === footAt) o.onFooterRest?.()
-    else if (i >= 0) {
+    const i = itemAt(L, j)
+    // An item first: a looping wheel's position runs past both ends (−6 in a loop of 12 is item 6), and only a
+    // position with no item is the header (−1) or the footer.
+    if (i >= 0) {
       sel = i
-      announce = label(i)
+      announce = label(L, i)
       o.onSettle?.(o.items[i] as T, i)
       emit(i)
-    }
+    } else if (j < 0) o.onHeaderRest?.()
+    else if (j === footAt) o.onFooterRest?.()
+    // Re-render (batched with any state the parent sets in onChange): the commit then sees the parent's answer.
+    // The selected row is always rendered (see api), so the listbox never references a row that isn't there.
     update()
   }
 
@@ -289,12 +324,12 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
     count: n,
     itemSize: size,
     visibleCount: visible,
-    loop,
+    loop: loop,
     rtl,
     min: head ? -1 : 0,
     max: footAt === footAt ? footAt : n - 1,
-    isEnabled: enabled,
-    getLabel: label,
+    isEnabled: (j) => enabled(L, j),
+    getLabel: (i) => label(L, i),
     onRender,
     onMode,
     onTick,
@@ -302,18 +337,25 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
   })
   const engine = createEngine(rest, engineOptions())
   // The track's transform is owned by the engine after mount; React only ever sets this first one (SSR-correct).
-  const initial = transform(rest * size)
+  const initial = transform(L, rest * size)
 
-  /** Layout phase, every render: push options to the engine, keep identity across item changes, follow `value`. */
-  function commit() {
-    engine.set(engineOptions())
+  /** Layout phase, every render: make the rendered layout live, keep identity across item changes, follow `value`. */
+  function commit(next: Layout<T>) {
     committing = true
-    const prev = prevKeys
-    prevKeys = keys
-    if (prev && prev !== keys) {
-      const ci = loop ? mod(engine.index, prev.length || 1) : engine.index
-      if (ci >= 0 && ci < prev.length) {
-        const ni = keys.indexOf(prev[ci] as Key)
+    const prev = L
+    live(next)
+    // Direction: from the prop, or (when it is removed) from the DOM again.
+    let redraw = prev.vertical !== vertical || prev.base !== base || !prev.o.interactive !== !o.interactive
+    if (o.dir !== dirProp) {
+      dirProp = o.dir
+      const r = dirProp ? dirProp === 'rtl' : root ? getComputedStyle(root).direction === 'rtl' : rtl
+      if (r !== rtl) (rtl = r), (redraw = true), update()
+    }
+    engine.set(engineOptions()) // a new row size rescales positions: the same rows stay centered
+    if (prev.keys !== keys) {
+      const ci = loop ? mod(engine.index, prev.keys.length || 1) : engine.index
+      if (ci >= 0 && ci < prev.keys.length) {
+        const ni = keys.indexOf(prev.keys[ci] as Key)
         if (ni >= 0 && ni !== ci) {
           engine.shift(ni - ci) // the centered item keeps its place on screen
           rest += ni - ci
@@ -329,11 +371,18 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
       const at = engine.index
       if (at < lo || at > hi || at === loadAt) engine.goTo(Math.max(lo, Math.min(hi, at === loadAt ? n - 1 : at)), false)
     }
-    const vk = keyOf(o.value)
+    // Controlled value. A new value turns the wheel to it. While the user turns it, the wheel follows the user
+    // and reports through onChange; once it rests, it agrees with the parent: if the parent kept another value
+    // (it rejected the change), the wheel turns back to it. Never mid-motion, so a throw is never steered.
+    const vk = keyOf(L, o.value)
     if (vk !== valueKey && (valueKey = vk) !== undefined) {
       const i = keys.indexOf(vk as Key)
       if (i >= 0 && i !== emitted) engine.scrollTo((emitted = i), o.animate ?? true)
+    } else if (vk !== undefined && engine.mode === 'idle' && rest === engine.index && itemAt(L, rest) >= 0 && keys[itemAt(L, rest)] !== vk) {
+      const i = keys.indexOf(vk as Key)
+      if (i >= 0 && enabled(L, i)) engine.scrollTo((emitted = i), o.animate ?? true)
     }
+    if (redraw) engine.sync()
     committing = false
   }
 
@@ -353,9 +402,10 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
 
   const optionId = (j: number) => `${id}-${j}`
 
-  /** Build the API for this render. */
-  function api(): DetentApi<T> {
-    const now = engine.x / size
+  /** Build the API for this render, from the layout this render derived (not yet live). */
+  function api(S: Layout<T>): DetentApi<T> {
+    const { o, n, size, visible, vertical, head, loadAt, footAt } = S
+    const now = engine.x / L.size
     const slot = (j: number, role: string, extra: object = {}): Slot => ({
       virtual: j,
       offset: j - now,
@@ -377,29 +427,35 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
             ...Object.fromEntries(vars(j - now, visible)),
             ...p.style,
           },
-        }) as DetentProps,
+        }) as DetentElementProps,
     })
-    const shows = (j: number) => j >= win[0] && j <= win[1]
+    // The rendered window follows the motion; the row the listbox references (aria-activedescendant: the resting
+    // one) is always rendered too, even when the wheel has moved far from it, so it always exists.
+    const shows = (j: number) => (j >= win[0] && j <= win[1]) || j === rest
     const rows: DetentRow<T>[] = []
     const used = new Set<Key>()
-    for (let j = win[0]; n && j <= win[1]; j++) {
-      const index = itemAt(j)
+    const order: number[] = []
+    if (rest < win[0]) order.push(rest)
+    for (let j = win[0]; j <= win[1]; j++) order.push(j)
+    if (rest > win[1]) order.push(rest)
+    for (const j of n ? order : []) {
+      const index = itemAt(S, j)
       if (index < 0) continue
-      const disabled = !enabled(j)
+      const disabled = !enabled(S, j)
       // Name options from getLabel: rich or inert (interactive) content may not name them otherwise.
-      const named = o.getLabel || o.interactive ? { 'aria-label': label(index) } : {}
+      const named = o.getLabel || o.interactive ? { 'aria-label': label(S, index) } : {}
       rows.push({
         ...slot(j, 'option', disabled ? { ...named, 'aria-disabled': true, 'data-disabled': '' } : named),
         item: o.items[index] as T,
         index,
         // Duplicate item keys must not become duplicate React keys (React would recycle the wrong nodes).
-        key: ((k: Key) => (used.has(k) ? `${k}#${j}` : (used.add(k), k)))(loop ? `${keys[index]}:${Math.floor(j / n)}` : (keys[index] as Key)),
+        key: ((k: Key) => (used.has(k) ? `${k}#${j}` : (used.add(k), k)))(S.loop ? `${S.keys[index]}:${Math.floor(j / n)}` : (S.keys[index] as Key)),
         disabled,
       })
     }
     const selectedIndex = n ? Math.min(n - 1, sel) : -1
-    const along = (p: DetentPropsIn, own: (el: HTMLElement | null) => void, style: CSSProperties) =>
-      ({ ...p, ref: merge(own, p.ref), style: { ...style, ...p.style } }) as DetentProps
+    const along = (p: DetentElementPropsIn, own: (el: HTMLElement | null) => void, style: CSSProperties) =>
+      ({ ...p, ref: merge(own, p.ref), style: { ...style, ...p.style } }) as DetentElementProps
 
     return {
       getRootProps: (p = {}) => ({
@@ -429,7 +485,11 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
       getTrackProps: (p = {}) => ({
         ...along(p, (el) => (track = el), {
           position: 'absolute',
-          ...(vertical ? { left: 0, right: 0, top: 0, height: size } : { top: 0, bottom: 0, insetInlineStart: 0, width: size }),
+          // Centered on the root's real size: the rows assume a root of size × visible (its default), so if the
+          // root is resized (style width/height), offset by half the difference instead of anchoring to the start.
+          ...(vertical
+            ? { left: 0, right: 0, top: `calc(50% - ${(size * visible) / 2}px)`, height: size }
+            : { top: 0, bottom: 0, insetInlineStart: `calc(50% - ${(size * visible) / 2}px)`, width: size }),
           transform: initial,
         }),
         role: 'presentation',
@@ -447,7 +507,14 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
       loadingRow: shows(loadAt) ? slot(loadAt, 'presentation', { 'aria-busy': true }) : null,
       selectedIndex,
       selectedItem: selectedIndex >= 0 ? o.items[selectedIndex] : undefined,
-      scrollTo: (i, opt) => engine.scrollTo(i, opt?.animate ?? o.animate ?? true),
+      scrollTo: (i, opt) => {
+        jumping = true
+        try {
+          engine.scrollTo(i, opt?.animate ?? L.o.animate ?? true)
+        } finally {
+          jumping = false
+        }
+      },
       subscribe: (fn) => {
         subs.add(fn)
         return () => void subs.delete(fn)
@@ -464,8 +531,9 @@ export function useDetent<T>(options: DetentOptions<T>): DetentApi<T> {
   const id = useId()
   const [, rerender] = useState(0)
   const [c] = useState(() => controller(options, id, () => rerender((k) => k + 1)))
-  c.derive(options)
-  useIso(c.commit)
+  // Render: derive and build from the props, touching nothing live. Layout phase: commit exactly this layout.
+  const layout = c.derive(options)
+  useIso(() => c.commit(layout))
   useIso(c.mount, [])
-  return c.api()
+  return c.api(layout)
 }

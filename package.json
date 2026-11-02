@@ -40,7 +40,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
     "dev": "tsup --watch",
-    "size": "size-limit"
+    "size": "size-limit",
+    "test:react18": "vitest run --config vitest.react18.config.ts"
   },
   "peerDependencies": {
     "react": ">=18",

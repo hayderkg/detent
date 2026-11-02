@@ -23,9 +23,8 @@ const s = (stiffness: number, zeta: number, mass = 1): SpringConfig => ({
 })
 
 /**
- * PROVISIONAL. UIPickerView feels heavier than a scroll view: somewhere between UIScrollView's
- * .fast (0.99, τ≈100ms) and .normal (0.998, τ≈500ms). To be decided side by side with a real
- * iOS picker on device. The only preset in the core bundle: it is the default.
+ * The default: a picker that feels like iOS. Heavier than a scroll view (between UIScrollView's .fast 0.99
+ * and .normal 0.998 deceleration), with a slightly underdamped settle.
  */
 export const ios: Physics = { decay: 0.995, spring: s(450, 0.85), rubberBand: 1, maxVelocity: 8, snapDuration: 900, handoff: 1, magnet: 1.1 }
 

@@ -90,3 +90,128 @@ describe('wheel replay (real recordings)', () => {
     })
   }
 })
+
+/**
+ * A fast mouse-wheel spin sends wheel events faster than frames (macOS: bursts every few ms). Each event must carry
+ * the running motion forward from where it is now: if it restarts from the last painted frame, the motion's clock
+ * keeps resetting and the wheel crawls until the events slow down. These check the motion DURING the burst.
+ */
+describe('wheel bursts faster than frames', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance', 'setTimeout', 'clearTimeout'] }))
+  afterEach(() => vi.useRealTimers())
+
+  /** `deltaY` every `gap` ms for `ms`, starting `phase` ms into a frame; the position (rows) every 50 ms. */
+  function burst(wheelMode: WheelMode, gap: number, phase: number, ms = 1000, deltaY = 1000) {
+    const el = document.createElement('div')
+    document.body.append(el)
+    const engine = createEngine(START, { count: 5000, itemSize: SIZE, visibleCount: 7, wheelMode })
+    const detach = engine.attach(el)
+    const modes = new Set<string>()
+    vi.advanceTimersByTime(phase)
+    const t0 = performance.now()
+    const samples: number[] = []
+    let events = 0
+    while (performance.now() - t0 < ms) {
+      const e = new WheelEvent('wheel', { deltaY, deltaMode: 0, bubbles: true, cancelable: true })
+      Object.defineProperty(e, 'timeStamp', { value: performance.now() })
+      el.dispatchEvent(e)
+      events++
+      modes.add(engine.mode)
+      const before = Math.floor((performance.now() - t0) / 50)
+      vi.advanceTimersByTime(gap)
+      for (let k = before + 1; k <= Math.floor((performance.now() - t0) / 50); k++) samples.push(engine.x / SIZE - START)
+    }
+    const atEnd = engine.x / SIZE - START
+    let tail = 0
+    while (engine.mode !== 'idle' && tail < 5000) {
+      vi.advanceTimersByTime(16)
+      tail += 16
+    }
+    detach()
+    el.remove()
+    return { samples, events, atEnd, final: engine.index - START, tail, modes }
+  }
+
+  for (const gap of [1, 2, 4, 8, 16])
+    for (const phase of [0, 5, 11]) {
+      it(`auto: events every ${gap}ms (${phase}ms into a frame) move the wheel steadily while they come`, () => {
+        const r = burst('auto', gap, phase)
+        // Moving within the first 100 ms, and then every 50 ms of the burst (max speed is ~10 rows per 50 ms).
+        expect(r.samples[1]!, 'rows after 100ms').toBeGreaterThan(8)
+        for (let i = 3; i < r.samples.length; i++) expect(r.samples[i]! - r.samples[i - 1]!, `rows in window ${i}`).toBeGreaterThan(5)
+        // And it settles on a row soon after the events stop.
+        expect(r.tail).toBeLessThan(1400)
+        expect(r.final).toBe(Math.round(r.final))
+      })
+
+      it(`step: events every ${gap}ms (${phase}ms into a frame) are one row each, never a throw`, () => {
+        const r = burst('step', gap, phase, 300)
+        expect(r.modes.has('coast'), 'no coasting in step mode').toBe(false)
+        expect(r.final).toBe(r.events) // one row per event, however large its delta
+        // The wheel follows the steps while they come: never more than a few frames behind.
+        const rate = 50 / gap // rows per 50 ms
+        for (let i = 2; i < r.samples.length; i++) expect(r.samples[i]! - r.samples[i - 1]!, `rows in window ${i}`).toBeGreaterThan(rate * 0.5)
+        expect(r.tail).toBeLessThan(600)
+      })
+    }
+
+  it('smooth still follows every delta 1:1 (trackpad behaviour)', () => {
+    const r = burst('smooth', 16, 0, 200, 40)
+    expect(r.atEnd).toBeCloseTo(r.events, 0)
+  })
+})
+
+describe('wheel recordings: motion during the gesture', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance', 'setTimeout', 'clearTimeout'] }))
+  afterEach(() => vi.useRealTimers())
+
+  /** Replays a take and records the position (rows from the start) 500 ms in, and how long it takes to rest after. */
+  function during(t: Take, wheelMode: WheelMode) {
+    const el = document.createElement('div')
+    document.body.append(el)
+    const engine = createEngine(START, { count: 5000, itemSize: SIZE, visibleCount: 7, wheelMode })
+    const detach = engine.attach(el)
+    let now = 0
+    let at500 = NaN
+    const t0 = t.samples[0]!.t
+    for (const s of t.samples) {
+      vi.advanceTimersByTime(Math.max(0, s.t - now))
+      now = s.t
+      if (s.t - t0 >= 500 && at500 !== at500) at500 = engine.x / SIZE - START
+      const e = new WheelEvent('wheel', { deltaX: s.dx, deltaY: s.dy, deltaMode: s.mode, bubbles: true, cancelable: true })
+      Object.defineProperty(e, 'timeStamp', { value: performance.now() })
+      Object.defineProperty(e, 'wheelDeltaY', { value: s.wdy ?? undefined })
+      Object.defineProperty(e, 'wheelDeltaX', { value: s.wdx ?? undefined })
+      el.dispatchEvent(e)
+    }
+    let tail = 0
+    while (engine.mode !== 'idle' && tail < 5000) {
+      vi.advanceTimersByTime(16)
+      tail += 16
+    }
+    const events = t.samples.length
+    detach()
+    el.remove()
+    return { at500, tail, final: engine.index - START, events }
+  }
+
+  // Measured on the MX Master 2S takes: ~53 and ~61 rows by 500 ms (they were ~29 and ~36 with the stalls).
+  it('mouse fast spin (auto): well under way within half a second, rests promptly after the last event', () => {
+    const r = during(take(mouse, 'mouse fast spin'), 'auto')
+    expect(r.at500).toBeGreaterThan(45)
+    expect(r.tail).toBeLessThan(500)
+  })
+  it('mouse free-spin (auto): well under way within half a second, rests promptly after the last event', () => {
+    const r = during(take(mouse, 'mouse free-spin'), 'auto')
+    expect(r.at500).toBeGreaterThan(50)
+    expect(r.tail).toBeLessThan(500)
+  })
+  for (const label of ['mouse fast spin', 'mouse free-spin'])
+    it(`${label} (step): one row per event`, () => {
+      const t = take(mouse, label)
+      const r = during(t, 'step')
+      const down = t.samples.filter((s) => s.dy > 0).length - t.samples.filter((s) => s.dy < 0).length
+      expect(r.final).toBe(down)
+      expect(r.tail).toBeLessThan(500)
+    })
+})
