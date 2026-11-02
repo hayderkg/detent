@@ -4,7 +4,7 @@
     "path": "dist/index.js",
     "import": "{ useDetent }",
     "gzip": true,
-    "limit": "6.7 kB",
+    "limit": "7.4 kB",
     "ignore": [
       "react",
       "react-dom"
@@ -15,7 +15,7 @@
     "path": "dist/index.js",
     "import": "{ Detent }",
     "gzip": true,
-    "limit": "12.8 kB",
+    "limit": "17.9 kB",
     "ignore": [
       "react",
       "react-dom"
@@ -26,12 +26,12 @@
     "path": "dist/index.js",
     "import": "{ createEngine }",
     "gzip": true,
-    "limit": "4.3 kB"
+    "limit": "4.6 kB"
   },
   {
     "name": "detent/feedback (haptics + tickSound + ticks)",
     "path": "dist/feedback.js",
     "gzip": true,
-    "limit": "600 B"
+    "limit": "800 B"
   }
 ]

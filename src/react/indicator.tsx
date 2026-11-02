@@ -1,6 +1,8 @@
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react'
 import { mod } from '../physics/snap'
 import type { DetentApi, DetentFrame, Key } from './useDetent'
+
+const useIso = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 export type IndicatorShape = 'rounded' | 'pill' | 'lines' | 'underline' | 'brackets' | 'dot' | 'needle' | 'none'
 export type IndicatorMaterial = 'solid' | 'glass' | 'outline' | 'gradient-border'
@@ -30,6 +32,14 @@ export interface IndicatorOptions<T> {
   inset?: number
   /** 0–1: let the size overshoot with the settle spring. Default 0 (lands exactly). */
   overshoot?: number
+  /** Brief compression/rebound of a box indicator after motion settles. true = subtle; a number sets intensity (0–1). Off by default. */
+  impact?: boolean | number
+  /** Optical distortion inside the selection lens. true = 0.5, or strength 0–4 (progressively limited above 2). Off by default; disabled with reduced motion. */
+  refraction?: boolean | number
+  /** Move refraction into the center instead of the edges (the original lens effect). Default false; requires refraction. */
+  refractionInverse?: boolean
+  /** Subtle RGB dispersion through the refraction lens. true = 0.35, or intensity 0–1. Off by default; requires refraction. */
+  refractionRGB?: boolean | number
   /**
    * Rows before the target where the indicator starts catching the incoming item (throws, keys and
    * programmatic moves). Before that it holds steady. Default 1.5.
@@ -71,8 +81,9 @@ interface Config<T> {
  * the root. No React renders, no layout reads in the frame loop: content sizes come from ResizeObserver.
  */
 export function useIndicator<T>(d: DetentApi<T>, root: { current: HTMLElement | null }, track: { current: HTMLElement | null }, cfg: Config<T>) {
+  // What the frame loop reads: the committed config, never one from a render React may still discard.
   const conf = useRef(cfg)
-  conf.current = cfg
+  useIso(() => void (conf.current = cfg))
   const sizes = useRef(new Map<Key, { w: number; h: number }>())
   const s = useRef({ w: NaN, h: NaN, cp: NaN, wFrom: NaN, hFrom: NaN, cFrom: '', motion: NaN, held: 0, t: 0, rem0: NaN })
 
@@ -191,17 +202,70 @@ export function useIndicator<T>(d: DetentApi<T>, root: { current: HTMLElement | 
 
   const now = (): DetentFrame => ({ offset: d.engine.x / (conf.current.pitch || 1), velocity: d.engine.v, mode: d.engine.mode, target: d.engine.target, from: d.engine.from })
   const applyRef = useRef(apply)
-  applyRef.current = apply
+  useIso(() => void (applyRef.current = apply))
 
   useEffect(() => d.subscribe((f) => applyRef.current(f)), []) // eslint-disable-line react-hooks/exhaustive-deps
   // Options can change while the wheel rests (no frames): bring the variables up to date after every render.
   useEffect(() => applyRef.current(now()))
 
-  // Measure item content once per size change (not per frame), cached by key.
+  // A short, interruptible response of the marker only; it never changes content size or selection.
+  useEffect(() => {
+    if (!cfg.opts.impact) return
+    const mq = matchMedia('(prefers-reduced-motion: reduce)')
+    let raf = 0
+    let peak = 0
+    let moving = false
+    const write = (v: number) => root.current?.style.setProperty('--indicator-impact', String(v))
+    const stop = () => { cancelAnimationFrame(raf); raf = 0; write(0) }
+    const preference = () => { if (mq.matches) { stop(); peak = 0 } }
+    mq.addEventListener('change', preference)
+    const off = d.subscribe((f) => {
+      const o = conf.current.opts
+      const intensity = o.impact === true ? 0.5 : typeof o.impact === 'number' && Number.isFinite(o.impact) ? clamp(o.impact, 0, 1) : 0
+      if (f.mode !== 'idle') {
+        if (raf) stop()
+        moving = true
+        peak = Math.max(peak, Math.abs(f.velocity))
+        return
+      }
+      if (!moving) return
+      moving = false
+      const amplitude = intensity * Math.min(1, peak / 2)
+      peak = 0
+      if (mq.matches || amplitude < 0.05 || !['rounded', 'pill'].includes(o.shape ?? 'rounded')) return
+      stop()
+      const start = performance.now()
+      write(amplitude)
+      const frame = (t: number) => {
+        const elapsed = Math.max(0, t - start)
+        if (elapsed >= 280) { raf = 0; write(0); return }
+        write(Number((amplitude * Math.exp(-elapsed / 65) * Math.cos(elapsed / 42)).toFixed(4)))
+        raf = requestAnimationFrame(frame)
+      }
+      raf = requestAnimationFrame(frame)
+    })
+    return () => { off(); mq.removeEventListener('change', preference); stop() }
+  }, [!!cfg.opts.impact]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sizes are cached by key: drop the ones whose items are gone, so a list that keeps changing (infinite
+  // loading, live data) doesn't grow the cache for the whole session.
+  const items = cfg.items
+  useEffect(() => {
+    const m = sizes.current
+    if (!m.size) return
+    const { keyOf } = conf.current
+    const keep = new Set(items.map((it, i) => keyOf(it as T, i)))
+    for (const k of m.keys()) if (!keep.has(k)) m.delete(k)
+  }, [items])
+
+  // Measure item content once per size change (not per frame), cached by key. Starts (and stops) with fit 'content',
+  // which can be switched on after mount.
   const ro = useRef<ResizeObserver | null>(null)
   const seen = useRef(new WeakSet<Element>())
+  const fitContent = cfg.opts.fit === 'content'
   useEffect(() => {
-    if (conf.current.opts.fit !== 'content' || typeof ResizeObserver === 'undefined') return
+    if (!fitContent || typeof ResizeObserver === 'undefined') return
+    seen.current = new WeakSet()
     const measure = (el: Element, w: number, h: number) => {
       const row = el.parentElement
       if (!el.isConnected || !row || !w) return ro.current?.unobserve(el) // removed rows report 0×0
@@ -221,8 +285,11 @@ export function useIndicator<T>(d: DetentApi<T>, root: { current: HTMLElement | 
       track.current?.querySelectorAll<HTMLElement>('[data-detent-content]').forEach((el) => measure(el, el.offsetWidth, el.offsetHeight))
       applyRef.current(now())
     })
-    return () => ro.current?.disconnect()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      ro.current?.disconnect()
+      ro.current = null
+    }
+  }, [fitContent]) // eslint-disable-line react-hooks/exhaustive-deps
   // New rows (virtualization) get observed as they mount.
   useEffect(() => {
     const r = ro.current
@@ -276,8 +343,9 @@ export function indicatorStyle<T>(o: IndicatorOptions<T>, vertical: boolean): CS
     else {
       const inner = o.background ?? 'Canvas'
       Object.assign(st, {
-        border: '1.5px solid transparent',
-        background: `linear-gradient(${inner},${inner}) padding-box, linear-gradient(135deg, ${accent}, color-mix(in oklab, ${accent} 35%, transparent)) border-box`,
+        // A 2px ring that runs strong → faint → strong around the box (a single dim fade read as almost nothing).
+        border: '2px solid transparent',
+        background: `linear-gradient(${inner},${inner}) padding-box, linear-gradient(135deg, ${accent}, color-mix(in oklab, ${accent} 18%, transparent) 50%, ${accent}) border-box`,
       })
     }
   }
