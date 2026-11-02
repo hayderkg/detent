@@ -1,0 +1,26 @@
+# CI for the public detent repository: the library on its own. (In the private monorepo this file sits under
+# packages/detent/ and does not run; there, the monorepo's own workflow covers it, browser tests included.)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - name: Unit tests on React 18 (the peer floor)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/react18" --no-audit --no-fund react@18 react-dom@18
+          REACT_DIR="$RUNNER_TEMP/react18/node_modules" npm run test:react18
+      - run: npm run build
+      - run: npm run size
