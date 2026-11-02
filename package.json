@@ -1,13 +1,13 @@
 {
   "name": "detent",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A wheel picker for React that clicks into place.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hayderkg/detent.git"
   },
-  "homepage": "https://github.com/hayderkg/detent#readme",
+  "homepage": "https://detent.hayder.sh",
   "bugs": {
     "url": "https://github.com/hayderkg/detent/issues"
   },

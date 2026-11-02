@@ -6,7 +6,7 @@ Custom physics (not `scroll-snap`): real inertia, a throw that lands exactly on 
 
 > **Status:** pre-release. The API may still change.
 
-Docs, playground and recipes live in the site (`apps/site` in this repo).
+Docs, playground and examples: **[detent.hayder.sh](https://detent.hayder.sh)**.
 
 ## Install
 
@@ -102,10 +102,6 @@ const onTick = ticks({ haptics: true, sound: { volume: 0.4 } })
 
 Both are no-ops where unsupported (the Vibration API does not exist on iOS Safari). Browsers only allow audio after a user gesture.
 
-## License
-
-MIT
-
 ## Motion blur (opt-in)
 
 `<Detent items={items} label="Value" motionBlur />` adds a directional blur along the scroll axis, proportional to velocity. `true` caps it at 4px; `motionBlur={6}` sets a custom cap (0–24px). The indicator stays sharp, the lens follows the same blur, and the effect clears at rest. It combines with the distance-based `blur` prop and turns off with reduced motion. Filtering adds rendering work: test rich rows and mobile devices before enabling it broadly.
@@ -163,3 +159,7 @@ Refraction reuses the existing inert magnification copy, so it does not create a
 `grip` adds a short visual absorption when a primary pointer catches a moving wheel. `true` uses intensity 0.5; pass 0–2 to adjust it. It finishes in 180ms, without delaying pointer control or changing the engine position, selected value or snapping. It affects the main track, slots and lens together, composes with `elasticRows`, and does nothing when grabbing a wheel at rest. Keyboard, wheel input and pointer cancellation clear the response.
 
 Both effects are off by default and disable themselves with reduced motion, including when that preference changes while mounted.
+
+## License
+
+[MIT](./LICENSE)
