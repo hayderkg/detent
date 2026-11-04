@@ -80,11 +80,11 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 | --- | --- |
 | `useDetent` (physics + engine + hook) | 7.36 kB |
 | `<Detent>` (styled component: core + every visual prop + indicator + every preset) | 17.84 kB |
-| `createEngine` (physics + engine, no React) | 4.56 kB |
+| `createEngine` (physics + engine, no React) | 4.54 kB |
 | `detent/feedback` (haptics, tick sound) | 0.77 kB |
-| `detent/text` (`DetentText`) | 3.96 kB |
-| `detent/number` (`DetentNumber`) | 4.46 kB |
-| `detent/text` and `detent/number` together | 7.12 kB |
+| `detent/text` (`DetentText`) | 4.00 kB |
+| `detent/number` (`DetentNumber`) | 4.49 kB |
+| `detent/text` and `detent/number` together | 7.16 kB |
 
 With `useDetent` and `createEngine`, presets other than the default are tree-shaken unless you import `presets`. `<Detent>` accepts preset names as strings, so it includes them all.
 
@@ -221,7 +221,7 @@ import { DetentNumber } from 'detent/number'
 - **Digits roll by place.** Up when the value grows, down when it shrinks (`trend`); a digit going from 7 to 2 passes 8, 9, 0 and 1. New places grow in from zero width and the rest slide over; signs, separators and symbols enter and leave.
 - **Only what is shown moves.** Values that format the same (1.001 and 1.002 with one decimal) do not animate.
 - **Native text at rest**, server rendered, with `font-variant-numeric: tabular-nums` by default. While it rolls, an `aria-hidden` copy is drawn over the real text.
-- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.4 kB gzipped alone, 7.1 kB together with `detent/text`.
+- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.5 kB gzipped alone, 7.2 kB together with `detent/text`.
 
 | Prop | Default | Purpose |
 | --- | --- | --- |
