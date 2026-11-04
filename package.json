@@ -37,7 +37,27 @@
         "default": "./dist/feedback.cjs"
       }
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./text": {
+      "import": {
+        "types": "./dist/text.d.ts",
+        "default": "./dist/text.js"
+      },
+      "require": {
+        "types": "./dist/text.d.cts",
+        "default": "./dist/text.cjs"
+      }
+    },
+    "./number": {
+      "import": {
+        "types": "./dist/number.d.ts",
+        "default": "./dist/number.js"
+      },
+      "require": {
+        "types": "./dist/number.d.cts",
+        "default": "./dist/number.cjs"
+      }
+    }
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

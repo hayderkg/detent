@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+- Faster `DetentText` and `DetentNumber` updates with long labels or many instances: a label is measured with one
+  `Range` instead of one per grapheme (live Ranges slowed every later DOM write), and a resize that leaves the
+  label's size unchanged no longer remeasures every glyph. 20 labels of ~150 characters: 1.4 s → 0.37 s per
+  update at 4× CPU slowdown in Chromium; 100 in WebKit: 12.6 s → 1.5 s. No visual change.
+
+- Exiting `DetentText` affixes follow the retained letters while intrinsic width changes, including interruptions.
+  Their glyph windows stay wide until they leave, avoiding sideways drift and horizontal slicing in centered labels.
+
+- `DetentText` and `DetentNumber` share a mask that is fully transparent outside the native line, with a small
+  fade into its edges so descenders do not peek through between steps. Incoming and outgoing text
+  rows travel exactly one line height, like each number-wheel step; retained letters keep their native baseline.
+
+- Add the optional `detent/text` entry point with `DetentText`: arbitrary short labels, matching-grapheme or
+  whole-label rolling, shared Detent spring physics, interruption handling, native text at rest, server rendering,
+  reduced motion and accessible visual copies. No predefined item list or picker input handlers are required.
+  Re-renders with the same text, options, `className`, `style`, `lang` and `dir` read no layout; `style` cannot
+  unposition the rolling layer or remove its box (`display: contents`).
+- Add the optional `detent/number` entry point with `DetentNumber`: a number formatted by `Intl.NumberFormat`
+  (`locales`, `format`) whose digits roll by decimal place through the values between, up or down with the value's
+  `trend`. New places grow in, symbols enter and leave, values that format the same do not move. Native text at
+  rest, server rendering, interruptions and reduced motion as in `DetentText`, with which it shares its frame loop
+  and springs (about 4.4 kB alone, 7.1 kB with `detent/text`). `classNames` styles each part (currency, fraction,
+  separators, sign…) at rest and while it rolls.
+- `DetentText` no longer merges neighbouring letters in WebKit, which rounds glyph positions to whole pixels.
+- Rolling number copies refresh their part styles and numbering system when retargeted. Bursts of updates no
+  longer queue unbounded digit revolutions; exceptionally long numbers update natively. Restyling a rolling label
+  without changing its text cancels the old visual copies, including when its dimensions stay the same. Hidden
+  labels update natively, so explicitly visible number copies cannot override `visibility: hidden`.
+
 ## 0.1.0
 
 The first release. Pre-1.0: the API may still change between minor versions.

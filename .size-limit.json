@@ -33,5 +33,40 @@
     "path": "dist/feedback.js",
     "gzip": true,
     "limit": "800 B"
+  },
+  {
+    "name": "detent/text (DetentText, independent entry)",
+    "path": "dist/text.js",
+    "import": "{ DetentText }",
+    "gzip": true,
+    "limit": "4 kB",
+    "ignore": [
+      "react",
+      "react-dom"
+    ]
+  },
+  {
+    "name": "detent/number (DetentNumber, independent entry)",
+    "path": "dist/number.js",
+    "import": "{ DetentNumber }",
+    "gzip": true,
+    "limit": "4.5 kB",
+    "ignore": [
+      "react",
+      "react-dom"
+    ]
+  },
+  {
+    "name": "detent/text + detent/number together",
+    "path": [
+      "dist/text.js",
+      "dist/number.js"
+    ],
+    "gzip": true,
+    "limit": "7.2 kB",
+    "ignore": [
+      "react",
+      "react-dom"
+    ]
   }
 ]

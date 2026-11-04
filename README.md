@@ -82,6 +82,9 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 | `<Detent>` (styled component: core + every visual prop + indicator + every preset) | 17.84 kB |
 | `createEngine` (physics + engine, no React) | 4.56 kB |
 | `detent/feedback` (haptics, tick sound) | 0.77 kB |
+| `detent/text` (`DetentText`) | 3.96 kB |
+| `detent/number` (`DetentNumber`) | 4.46 kB |
+| `detent/text` and `detent/number` together | 7.12 kB |
 
 With `useDetent` and `createEngine`, presets other than the default are tree-shaken unless you import `presets`. `<Detent>` accepts preset names as strings, so it includes them all.
 
@@ -159,6 +162,91 @@ Refraction reuses the existing inert magnification copy, so it does not create a
 `grip` adds a short visual absorption when a primary pointer catches a moving wheel. `true` uses intensity 0.5; pass 0–2 to adjust it. It finishes in 180ms, without delaying pointer control or changing the engine position, selected value or snapping. It affects the main track, slots and lens together, composes with `elasticRows`, and does nothing when grabbing a wheel at rest. Keyboard, wheel input and pointer cancellation clear the response.
 
 Both effects are off by default and disable themselves with reduced motion, including when that preference changes while mounted.
+
+## Detent Text
+
+`DetentText` animates short interface labels (a button's state, a counter, a status) with the same spring that settles the wheel. What sets it apart:
+
+- **Native text at rest.** The server renders the real text. While a change rolls, a visual copy is drawn over it and the text underneath stays in the DOM, so screen readers, selection and hydration only ever see plain text.
+- **No list of values.** Pass the current string or number. Changes are matched grapheme by grapheme (emoji and combining marks stay whole), so `Send` → `Sending…` keeps `Send` and rolls the rest.
+- **Separate and small.** `detent/text` is its own entry point, about 4 kB gzipped: importing `detent` does not include it, and it does not include the wheel.
+- **Interruptible.** A new label mid-roll continues from where each letter is, at its speed, with no jump.
+
+It mounts no picker, attaches no gesture handlers and runs no React renders per frame.
+
+```tsx
+import { DetentText } from 'detent/text'
+
+<DetentText>{status}</DetentText>
+// Send → Sending… → Sent: matching graphemes remain, changed ones roll.
+
+<DetentText morph={false}>{status}</DetentText>
+// Roll the entire label instead.
+```
+
+The value is a string or number; no predefined `items` are required. Numbers passed here match by character; for digits that roll by decimal place, use [`DetentNumber`](#detent-number).
+
+| Prop | Default | Purpose |
+| --- | --- | --- |
+| `children` | required | Current string or number |
+| `morph` | `true` | Preserve matching graphemes; `false` rolls the whole label |
+| `animate` | `true` | Set `false` for immediate updates |
+| `spring` | `{ stiffness: 420, damping: 32, mass: 1 }` | Partial spring configuration |
+| `snapDuration` | `550` | Maximum spring duration, in ms |
+| `rollDirection` | `'up'` | `'up'` or `'down'` for changing text |
+| `locale` | browser default | Grapheme segmentation locale |
+| `as` | `'span'` | Text element such as `span`, `strong`, `output`, `code`, or a heading |
+| `style` | — | Yours, except that `position: static` becomes `relative` and `display: inline` or `contents` becomes `inline-block`: the rolling layer needs a positioned box of its own |
+| `onAnimationStart` | — | A transition starts |
+| `onAnimationComplete` | — | A transition settles |
+| `onAnimationCancel` | — | A running transition is interrupted or removed |
+
+`className`, `style`, HTML attributes, ARIA attributes and a forwarded `HTMLElement` ref are supported. Typography is inherited. The label is measured when its text, `className`, `style`, `lang` or `dir` changes, when it resizes and when a font loads; if an ancestor restyles its letters without changing its size, give it a new `key`. Intrinsic width animates with the label; an explicit inline `style.width` keeps the container fixed. Use `aria-live="polite"` only when changes need announcing; inside a button the native text already supplies its accessible name.
+
+Real text is rendered on the server and remains available to assistive technology and text selection. Temporary visual slices are `aria-hidden` and disappear at rest, so native typography, kerning and ligatures are restored exactly. Each label has one animation frame loop, one resize observer and one reduced-motion listener; only changed graphemes roll. Interrupted transitions retain their on-screen positions and velocities. Reduced motion is always respected, including changes during an animation.
+
+This first version targets short, single-line LTR interface text. Multiline text, RTL/complex bidirectional text and vertical writing render natively with immediate updates. Labels longer than 160 UTF-16 code units, or browsers without `Intl.Segmenter`, roll as a whole rather than allocating a large character alignment. It is not yet a feature-for-feature replacement for a general text-layout animation library. Migrate individual labels and review their actual typography and transitions.
+
+## Detent Number
+
+`DetentNumber` shows a formatted number whose digits roll on the same spring, through the values between, like an odometer. It understands what it shows: digits are matched by decimal place, so the units stay the units from 99 to 100, through a change of sign or of locale.
+
+```tsx
+import { DetentNumber } from 'detent/number'
+
+<DetentNumber value={amount} locales="es-ES" format={{ style: 'currency', currency: 'EUR' }} />
+```
+
+- **Formatted by `Intl.NumberFormat`.** `locales` and `format` go straight to it: currencies, percentages, units, compact notation, grouping, signs and any numbering system.
+- **Digits roll by place.** Up when the value grows, down when it shrinks (`trend`); a digit going from 7 to 2 passes 8, 9, 0 and 1. New places grow in from zero width and the rest slide over; signs, separators and symbols enter and leave.
+- **Only what is shown moves.** Values that format the same (1.001 and 1.002 with one decimal) do not animate.
+- **Native text at rest**, server rendered, with `font-variant-numeric: tabular-nums` by default. While it rolls, an `aria-hidden` copy is drawn over the real text.
+- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.4 kB gzipped alone, 7.1 kB together with `detent/text`.
+
+| Prop | Default | Purpose |
+| --- | --- | --- |
+| `value` | required | A `number` or `bigint` |
+| `locales` | browser default | Passed to `Intl.NumberFormat` |
+| `format` | — | `Intl.NumberFormatOptions` |
+| `trend` | `'auto'` | `'auto'` rolls up when the value grows and down when it shrinks; `'up'` or `'down'` always |
+| `classNames` | — | A class per part: `integer`, `fraction`, `decimal`, `group`, `currency`, `sign`, `unit` |
+| `animate` | `true` | Set `false` for immediate updates |
+| `spring` | `{ stiffness: 460, damping: 38, mass: 1 }` | Partial spring configuration |
+| `snapDuration` | `700` | Maximum spring duration, in ms |
+| `as` | `'span'` | Text element such as `span`, `strong`, `output`, `data`, or a heading |
+| `style` | — | As in `DetentText`. `fontVariantNumeric` can be overridden |
+| `onAnimationStart` / `onAnimationComplete` / `onAnimationCancel` | — | As in `DetentText` |
+
+To style the parts (a quieter currency, smaller decimals, faint separators), pass `classNames`:
+
+```tsx
+<DetentNumber value={price} format={{ style: 'currency', currency: 'USD' }}
+  classNames={{ currency: 'price-currency', fraction: 'price-cents', decimal: 'price-cents', group: 'price-group' }} />
+```
+
+The native text is then split into a span per part, still one selectable, accessible label, and the rolling copies carry the same classes, so the styles hold during the roll. Without `classNames` it stays a single text node.
+
+`className`, HTML and ARIA attributes and a forwarded ref are supported, and the label is measured on the same changes as `DetentText`, and when `classNames` change. A number with right-to-left or bidirectional marks in its formatting (Arabic locales, for example) updates natively without rolling. Numbers with more than 160 formatted tokens also update natively, keeping the temporary DOM bounded. Pass an explicit `locales` value when server rendering so the server and browser use the same format. Format the value you show, not a running counter: each change rolls from where the digits are.
 
 ## License
 
