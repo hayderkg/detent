@@ -124,7 +124,7 @@ export interface DetentProps<T> extends Omit<DetentOptions<T>, 'preset' | 'heade
   /**
    * A tuned bundle: 'ios' | 'scroll' | 'snappy' | 'heavy' | 'elastic' | 'linear', or your own physics.
    * Sound and haptics are opt-in so they cost nothing unless used:
-   * `onTick={ticks({ haptics: true, sound: true })}` from 'detent/feedback'.
+   * `onTick={ticks({ haptics: true, sound: true })}` from '@hayderkg/detent/feedback'.
    */
   preset?: PresetName | Physics
 

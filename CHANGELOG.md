@@ -2,7 +2,7 @@
 
 ## 0.1.0
 
-The first release. Pre-1.0: the API may still change between minor versions.
+The first release, published as `@hayderkg/detent`. Pre-1.0: the API may still change between minor versions.
 
 ### `<Detent>` and `useDetent`
 
@@ -21,12 +21,12 @@ The first release. Pre-1.0: the API may still change between minor versions.
 - Opt-in motion and optics effects: `motionBlur`, `velocityTilt`, `centerLight`, `selectedDepth`, `elasticRows`,
   `grip`, and `indicator.refraction` (with `refractionInverse` and `refractionRGB`).
 
-### `detent/feedback`
+### `@hayderkg/detent/feedback`
 
 - `ticks({ haptics, sound })`: a haptic tap and a soft click per row, opt-in. One shared audio context, started
   only after a user gesture and never during a spin; `dynamicTimbre` brightens fast ticks.
 
-### `detent/text`
+### `@hayderkg/detent/text`
 
 - `DetentText`: short labels that roll on Detent's spring physics, with no list of possible values. Matching
   graphemes keep their place and only the changed ones roll (`morph`), or the whole label rolls; `rollDirection`.
@@ -37,7 +37,7 @@ The first release. Pre-1.0: the API may still change between minor versions.
 - Cheap to update: a label is measured with one `Range`, re-renders with the same text and options read no
   layout, and a resize that leaves the label's size unchanged remeasures nothing.
 
-### `detent/number`
+### `@hayderkg/detent/number`
 
 - `DetentNumber`: a number formatted by `Intl.NumberFormat` (`locales`, `format`) whose digits roll by decimal place
   through the values between, up or down with the value's `trend`. New places grow in, symbols enter and leave,
@@ -49,5 +49,5 @@ The first release. Pre-1.0: the API may still change between minor versions.
 
 ### Size (minified + gzipped)
 
-- `useDetent` 7.36 kB, `<Detent>` with every preset 17.84 kB, `detent/feedback` 768 B, `detent/text` 4.21 kB,
-  `detent/number` 4.66 kB (7.41 kB together). No runtime dependencies; React 18 or 19 as a peer.
+- `useDetent` 7.36 kB, `<Detent>` with every preset 17.84 kB, `@hayderkg/detent/feedback` 768 B, `@hayderkg/detent/text` 4.21 kB,
+  `@hayderkg/detent/number` 4.66 kB (7.41 kB together). No runtime dependencies; React 18 or 19 as a peer.

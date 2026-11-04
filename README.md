@@ -11,7 +11,7 @@ Docs, playground and examples: **[detent.hayder.sh](https://detent.hayder.sh)**.
 ## Install
 
 ```sh
-npm i detent
+npm i @hayderkg/detent
 ```
 
 ## Quickstart
@@ -20,7 +20,7 @@ The styled component looks finished with no styling props (light and dark, a sub
 
 ```tsx
 'use client'
-import { Detent } from 'detent'
+import { Detent } from '@hayderkg/detent'
 
 const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
 
@@ -31,7 +31,7 @@ Or go headless:
 
 ```tsx
 'use client'
-import { useDetent } from 'detent'
+import { useDetent } from '@hayderkg/detent'
 
 const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
 
@@ -81,10 +81,10 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 | `useDetent` (physics + engine + hook) | 7.36 kB |
 | `<Detent>` (styled component: core + every visual prop + indicator + every preset) | 17.84 kB |
 | `createEngine` (physics + engine, no React) | 4.54 kB |
-| `detent/feedback` (haptics, tick sound) | 0.77 kB |
-| `detent/text` (`DetentText`) | 4.21 kB |
-| `detent/number` (`DetentNumber`) | 4.66 kB |
-| `detent/text` and `detent/number` together | 7.41 kB |
+| `@hayderkg/detent/feedback` (haptics, tick sound) | 0.77 kB |
+| `@hayderkg/detent/text` (`DetentText`) | 4.21 kB |
+| `@hayderkg/detent/number` (`DetentNumber`) | 4.66 kB |
+| `@hayderkg/detent/text` and `@hayderkg/detent/number` together | 7.41 kB |
 
 With `useDetent` and `createEngine`, presets other than the default are tree-shaken unless you import `presets`. `<Detent>` accepts preset names as strings, so it includes them all.
 
@@ -95,7 +95,7 @@ With `useDetent` and `createEngine`, presets other than the default are tree-sha
 ## Feedback (opt-in)
 
 ```tsx
-import { ticks } from 'detent/feedback'
+import { ticks } from '@hayderkg/detent/feedback'
 
 // Create it once (module scope or useMemo): a new handler per render restarts its throttle and audio.
 const onTick = ticks({ haptics: true, sound: { volume: 0.4 } })
@@ -130,7 +130,7 @@ const onTick = ticks({ sound: { dynamicTimbre: true } }) // once, outside the co
 <Detent items={items} label="Value" centerLight selectedDepth onTick={onTick} />
 ```
 
-Import `ticks` from `detent/feedback`. `centerLight` brightens rows as they pass through the center (`true` = 0.12; intensity 0–0.5). `selectedDepth` brings the centered row forward and its neighbors back with a per-row perspective transform (`true` = 8px; range 0–24px). Both are off by default, apply to the magnifying lens too, and turn off with reduced motion. A custom `rowStyle.transform` overrides the built-in depth transform.
+Import `ticks` from `@hayderkg/detent/feedback`. `centerLight` brightens rows as they pass through the center (`true` = 0.12; intensity 0–0.5). `selectedDepth` brings the centered row forward and its neighbors back with a per-row perspective transform (`true` = 8px; range 0–24px). Both are off by default, apply to the magnifying lens too, and turn off with reduced motion. A custom `rowStyle.transform` overrides the built-in depth transform.
 
 `dynamicTimbre` is an optional `tickSound` option (also accepted through `ticks`): `true` or intensity 0–1. Fast ticks sound brighter and less resonant; slow ticks sound more defined. The normal fixed timbre remains the default. Audio still requires browser support and a prior user gesture.
 
@@ -169,13 +169,13 @@ Both effects are off by default and disable themselves with reduced motion, incl
 
 - **Native text at rest.** The server renders the real text. While a change rolls, a visual copy is drawn over it and the text underneath stays in the DOM, so screen readers, selection and hydration only ever see plain text.
 - **No list of values.** Pass the current string or number. Changes are matched grapheme by grapheme (emoji and combining marks stay whole), so `Send` → `Sending…` keeps `Send` and rolls the rest.
-- **Separate and small.** `detent/text` is its own entry point, about 4.2 kB gzipped: importing `detent` does not include it, and it does not include the wheel.
+- **Separate and small.** `@hayderkg/detent/text` is its own entry point, about 4.2 kB gzipped: importing `@hayderkg/detent` does not include it, and it does not include the wheel.
 - **Interruptible.** A new label mid-roll continues from where each letter is, at its speed, with no jump.
 
 It mounts no picker, attaches no gesture handlers and runs no React renders per frame.
 
 ```tsx
-import { DetentText } from 'detent/text'
+import { DetentText } from '@hayderkg/detent/text'
 
 <DetentText>{status}</DetentText>
 // Send → Sending… → Sent: matching graphemes remain, changed ones roll.
@@ -212,7 +212,7 @@ This first version targets short, single-line LTR interface text. Multiline text
 `DetentNumber` shows a formatted number whose digits roll on the same spring, through the values between, like an odometer. It understands what it shows: digits are matched by decimal place, so the units stay the units from 99 to 100, through a change of sign or of locale.
 
 ```tsx
-import { DetentNumber } from 'detent/number'
+import { DetentNumber } from '@hayderkg/detent/number'
 
 <DetentNumber value={amount} locales="es-ES" format={{ style: 'currency', currency: 'EUR' }} />
 ```
@@ -221,7 +221,7 @@ import { DetentNumber } from 'detent/number'
 - **Digits roll by place.** Up when the value grows, down when it shrinks (`trend`); a digit going from 7 to 2 passes 8, 9, 0 and 1. New places grow in from zero width and the rest slide over; signs, separators and symbols enter and leave.
 - **Only what is shown moves.** Values that format the same (1.001 and 1.002 with one decimal) do not animate.
 - **Native text at rest**, server rendered, with `font-variant-numeric: tabular-nums` by default. While it rolls, an `aria-hidden` copy is drawn over the real text.
-- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.7 kB gzipped alone, 7.4 kB together with `detent/text`.
+- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.7 kB gzipped alone, 7.4 kB together with `@hayderkg/detent/text`.
 
 | Prop | Default | Purpose |
 | --- | --- | --- |
