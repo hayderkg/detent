@@ -243,6 +243,39 @@ describe('DetentText', () => {
     expect(host.querySelector('[data-detent-text-part]')).toBeNull()
   })
 
+  it('keeps departing letters in place on screen when the label is right-aligned or centred', () => {
+    // A label whose right edge (end = 1) or middle (end = ½) stays put in its line: as its width springs, its left
+    // edge travels. Departing letters must not ride along with it.
+    for (const [end, morph, next] of [[1, false, 'Hi'], [0.5, false, 'Hi'], [1, true, '\u00a0'], [0.5, true, 'Hi']] as const) {
+      const root = (el: HTMLElement) => el.classList.contains('anchored')
+      const widthOf = (el: HTMLElement) => el.style.width ? parseFloat(el.style.width) : extent(content(el).textContent ?? '')
+      const leftOf = (el: HTMLElement) => 200 - widthOf(el) * end
+      const plain = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!
+      vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (this: HTMLElement) {
+        return root(this) ? new DOMRect(leftOf(this), 0, widthOf(this), 20) : plain.call(this)
+      })
+      const { host, rerender } = render(<DetentText className="anchored" morph={morph}>CLASSICAL</DetentText>)
+      const el = host.querySelector<HTMLElement>('.anchored')!
+      rerender(<DetentText className="anchored" morph={morph}>{next}</DetentText>)
+      // Nothing is kept, so every letter leaves. (Kept letters that glide are followed by their departing neighbours,
+      // on purpose: see the anchors in the text controller.) The last one would travel furthest if anything carried it.
+      const out = [...host.querySelectorAll<HTMLElement>('[data-detent-text-part=""]')].at(-1)!
+      const screenX = () => leftOf(el) + (parseFloat(host.querySelector<HTMLElement>('[data-detent-text-layer]')!.style.translate) || 0) +
+        parseFloat(/translateX\((-?[\d.]+)px\)/.exec(out.style.transform)![1]!)
+      const start = screenX()
+      for (const ms of [40, 120, 260]) {
+        advance(ms)
+        if (!out.isConnected) break
+        expect(Math.abs(widthOf(el) - extent('CLASSICAL'))).toBeGreaterThan(0) // the width is moving
+        expect(screenX()).toBeCloseTo(start, 3)
+      }
+      advance(2000)
+      expect(host.querySelector<HTMLElement>('[data-detent-text-layer]')!.style.translate).toBe('')
+      for (const r of roots.splice(0)) act(() => r.unmount())
+      vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(plain)
+    }
+  })
+
   it('preserves positions when retargeted mid-flight and cancels the previous completion', () => {
     const complete = vi.fn(), cancel = vi.fn(), start = vi.fn()
     const label = (text: string) => <DetentText onAnimationComplete={complete} onAnimationCancel={cancel} onAnimationStart={start}>{text}</DetentText>

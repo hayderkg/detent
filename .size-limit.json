@@ -39,7 +39,7 @@
     "path": "dist/text.js",
     "import": "{ DetentText }",
     "gzip": true,
-    "limit": "4 kB",
+    "limit": "4.25 kB",
     "ignore": [
       "react",
       "react-dom"
@@ -50,7 +50,7 @@
     "path": "dist/number.js",
     "import": "{ DetentNumber }",
     "gzip": true,
-    "limit": "4.5 kB",
+    "limit": "4.7 kB",
     "ignore": [
       "react",
       "react-dom"
@@ -63,7 +63,7 @@
       "dist/number.js"
     ],
     "gzip": true,
-    "limit": "7.2 kB",
+    "limit": "7.45 kB",
     "ignore": [
       "react",
       "react-dom"

@@ -55,6 +55,9 @@ export function numberController(root: HTMLElement, content: HTMLElement, layer:
   function place(cell: Cell, l: NumberLayout, piece: Piece) {
     // Keep the native baseline; the shared mask hides neighbouring digits outside the line and softens its edges.
     const pad = fadeWindow(cell.node, l)
+    // Pin the rolling column to the cell's left edge. Left unset, an absolute box sits at its static position, which
+    // an inherited text-align (a centred or right-aligned label) moves: the copies would land beside their window.
+    cell.inner.style.left = '0'
     cell.inner.style.top = `${pad}px`
     // A new font size keeps the wheel on the same digit, moving at the same rate.
     const scale = l.height / cell.height || 1
@@ -155,6 +158,9 @@ export function numberController(root: HTMLElement, content: HTMLElement, layer:
         sample(cell.x, t); sample(cell.width, t); sample(cell.y, t); sample(cell.pos, t)
         draw(cell)
       }
+    },
+    shift(dx) {
+      for (const cell of cells.values()) { cell.x.x += dx; draw(cell) }
     },
     clear() { cells = new Map() },
   })

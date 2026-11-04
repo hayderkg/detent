@@ -337,6 +337,13 @@ describe('DetentNumber', () => {
     expect(ranges.mock.calls.length - before).toBe(1)
   })
 
+  it('pins every rolling column to its cell, whatever text-align it inherits', () => {
+    const { host, rerender } = render(<div style={{ textAlign: 'center' }}><DetentNumber value={50.5} /></div>)
+    rerender(<div style={{ textAlign: 'center' }}><DetentNumber value={37.88} /></div>)
+    expect(cells(host).length).toBeGreaterThan(0)
+    for (const c of cells(host)) expect((c.firstElementChild as HTMLElement).style.left).toBe('0px')
+  })
+
   it('settles at once with reduced motion or animate={false}', () => {
     reduced = true
     const { host, rerender } = render(<DetentNumber value={1} />)

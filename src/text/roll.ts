@@ -23,9 +23,14 @@ export interface Kind<L extends Shape, O extends RollOptions> {
   animatable(old: L, next: L, previous: O, o: O): boolean
   /** Visual copies of the label at rest, before its first transition. */
   begin(old: L, o: O): void
-  /** Retargets every part from where it is drawn now. Returns the longest motion (ms). */
-  transition(old: L, next: L, o: O): number
+  /**
+   * Retargets every part from where it is drawn now. Returns the longest motion (ms). `anchored`: the label grows
+   * from its right edge or middle, and parts are in a frame that stays put on screen (see roll's anchor).
+   */
+  transition(old: L, next: L, o: O, anchored: boolean): number
   paint(t: number): void
+  /** Move every part by dx px, as drawn now (the layer's frame changed under them). */
+  shift(dx: number): void
   /** The layer has been emptied: forget the parts. */
   clear(): void
 }
@@ -68,6 +73,11 @@ export function roll<L extends Shape, O extends RollOptions>(root: HTMLElement, 
   let originalWidth = root.style.width
   let fit = !originalWidth
   let inlineOpacity = content.style.opacity
+  // Which way the label grows in its line: 0 from its left edge, 1 from its right (right-aligned, or RTL), ½ from its
+  // middle (centred). While the width springs, that edge travels; the layer moves back by as much, so the copies stay
+  // where they are on screen instead of riding along. Measured per transition; 0 costs nothing.
+  let anchor = 0, endWidth = 0
+  const frameOffset = (w: number) => anchor * (w - endWidth)
   const mq = matchMedia('(prefers-reduced-motion: reduce)')
 
   const stop = (complete: boolean) => {
@@ -77,6 +87,8 @@ export function roll<L extends Shape, O extends RollOptions>(root: HTMLElement, 
     completion = cancellation = undefined
     content.style.opacity = inlineOpacity
     if (fit) root.style.width = originalWidth
+    layer.style.translate = ''
+    anchor = 0
     layer.replaceChildren()
     kind.clear()
     notify?.()
@@ -85,6 +97,7 @@ export function roll<L extends Shape, O extends RollOptions>(root: HTMLElement, 
     const t = Math.max(0, now - started)
     sample(width, t)
     if (fit && width.motion) root.style.width = `${Math.max(0, width.x)}px`
+    if (anchor) layer.style.translate = `${frameOffset(width.x)}px 0`
     kind.paint(t)
   }
   function frame(now: number) {
@@ -139,7 +152,8 @@ export function roll<L extends Shape, O extends RollOptions>(root: HTMLElement, 
       width = axis(old.width)
       kind.begin(old, next)
     }
-    duration = Math.max(kind.transition(old, measured, next), move(width, measured.width, next))
+    retarget(measured.width)
+    duration = Math.max(kind.transition(old, measured, next, anchor > 0), move(width, measured.width, next))
     started = now
     content.style.opacity = '0'
     completion = next.onAnimationComplete; cancellation = next.onAnimationCancel
@@ -148,6 +162,20 @@ export function roll<L extends Shape, O extends RollOptions>(root: HTMLElement, 
     next.onAnimationStart?.()
     if (duration <= 0) stop(true)
     else raf = requestAnimationFrame(frame)
+  }
+  /** Find which edge the label grows from (see anchor) and move the parts into the new frame. */
+  function retarget(to: number) {
+    const before = frameOffset(width.x), inline = root.style.width
+    // Two reads of the root's box: at its current width and at its final one.
+    const box = (w: number) => ((root.style.width = `${w}px`), root.getBoundingClientRect())
+    const a = fit ? box(width.x) : undefined, b = fit ? box(to) : undefined
+    root.style.width = inline
+    const grew = b ? b.width - a!.width : 0
+    anchor = Math.abs(grew) > 0.5 ? Math.min(1, Math.max(0, (a!.left - b!.left) / grew)) : 0
+    if (anchor < 0.01) anchor = 0
+    endWidth = to
+    kind.shift(before - frameOffset(width.x))
+    layer.style.translate = ''
   }
   function refresh(force = false) {
     if (!layout || destroyed) return

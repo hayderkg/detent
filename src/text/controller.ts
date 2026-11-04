@@ -37,10 +37,15 @@ export function textController(root: HTMLElement, content: HTMLElement, layer: H
     animatable: (old, next, previous, o) =>
       old.safe && next.safe && previous.morph === o.morph && previous.locale === o.locale && parts.length <= 512,
     begin(old, o) { parts = old.pieces.map(piece => make(piece, old, o)) },
-    transition(_, measured, o) {
+    transition(_, measured, o, anchored) {
       const oldParts = parts.filter(part => part.text !== null)
       const outgoing = parts.filter(part => part.text === null)
-      const pairs = align(oldParts.map(part => part.text!), measured.pieces.map(piece => piece.text))
+      // A changed grapheme normally rolls in its slot, which glides to the new place. In a label that grows from its
+      // right edge or middle, that place can be far (the whole label shifts): the old one leaves where it is and the
+      // new one comes in where it belongs, rather than one slot flying across.
+      const pairs = align(oldParts.map(part => part.text!), measured.pieces.map(piece => piece.text)).flatMap(([i, j]) =>
+        anchored && i !== null && j !== null && oldParts[i]!.text !== measured.pieces[j]!.text &&
+          Math.abs(measured.pieces[j]!.left - oldParts[i]!.x.x) > 0.5 ? [[i, null], [null, j]] as const : [[i, j]] as const)
       const nextParts: Part[] = []
       let duration = 0
       const go = (a: Axis, to: number) => { duration = Math.max(duration, move(a, to, o)) }
@@ -105,6 +110,9 @@ export function textController(root: HTMLElement, content: HTMLElement, layer: H
           if (row.y.motion) row.node.style.transform = `translateY(${row.y.x}px)`
         }
       }
+    },
+    shift(dx) {
+      for (const part of parts) { part.x.x += dx; part.node.style.transform = `translateX(${part.x.x}px)` }
     },
     clear() { parts = [] },
   })

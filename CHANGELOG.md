@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `DetentText` and `DetentNumber` labels that grow from their right edge or middle (right-aligned, centred, or
+  right-to-left) no longer carry their departing text sideways while their width springs: each transition finds the
+  edge the label grows from, and the rolling copies stay put on screen. In such labels a changed letter whose slot
+  would have to travel leaves where it is and its replacement comes in where it belongs. Left-aligned labels are
+  unchanged.
+
+- `DetentNumber` no longer shifts its rolling digits sideways inside centred or right-aligned text: each wheel's
+  column is pinned to its window instead of following the inherited `text-align`.
+
 - Faster `DetentText` and `DetentNumber` updates with long labels or many instances: a label is measured with one
   `Range` instead of one per grapheme (live Ranges slowed every later DOM write), and a resize that leaves the
   label's size unchanged no longer remeasures every glyph. 20 labels of ~150 characters: 1.4 s → 0.37 s per

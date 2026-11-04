@@ -82,9 +82,9 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 | `<Detent>` (styled component: core + every visual prop + indicator + every preset) | 17.84 kB |
 | `createEngine` (physics + engine, no React) | 4.54 kB |
 | `detent/feedback` (haptics, tick sound) | 0.77 kB |
-| `detent/text` (`DetentText`) | 4.00 kB |
-| `detent/number` (`DetentNumber`) | 4.49 kB |
-| `detent/text` and `detent/number` together | 7.16 kB |
+| `detent/text` (`DetentText`) | 4.21 kB |
+| `detent/number` (`DetentNumber`) | 4.66 kB |
+| `detent/text` and `detent/number` together | 7.41 kB |
 
 With `useDetent` and `createEngine`, presets other than the default are tree-shaken unless you import `presets`. `<Detent>` accepts preset names as strings, so it includes them all.
 
@@ -169,7 +169,7 @@ Both effects are off by default and disable themselves with reduced motion, incl
 
 - **Native text at rest.** The server renders the real text. While a change rolls, a visual copy is drawn over it and the text underneath stays in the DOM, so screen readers, selection and hydration only ever see plain text.
 - **No list of values.** Pass the current string or number. Changes are matched grapheme by grapheme (emoji and combining marks stay whole), so `Send` → `Sending…` keeps `Send` and rolls the rest.
-- **Separate and small.** `detent/text` is its own entry point, about 4 kB gzipped: importing `detent` does not include it, and it does not include the wheel.
+- **Separate and small.** `detent/text` is its own entry point, about 4.2 kB gzipped: importing `detent` does not include it, and it does not include the wheel.
 - **Interruptible.** A new label mid-roll continues from where each letter is, at its speed, with no jump.
 
 It mounts no picker, attaches no gesture handlers and runs no React renders per frame.
@@ -221,7 +221,7 @@ import { DetentNumber } from 'detent/number'
 - **Digits roll by place.** Up when the value grows, down when it shrinks (`trend`); a digit going from 7 to 2 passes 8, 9, 0 and 1. New places grow in from zero width and the rest slide over; signs, separators and symbols enter and leave.
 - **Only what is shown moves.** Values that format the same (1.001 and 1.002 with one decimal) do not animate.
 - **Native text at rest**, server rendered, with `font-variant-numeric: tabular-nums` by default. While it rolls, an `aria-hidden` copy is drawn over the real text.
-- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.5 kB gzipped alone, 7.2 kB together with `detent/text`.
+- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.7 kB gzipped alone, 7.4 kB together with `detent/text`.
 
 | Prop | Default | Purpose |
 | --- | --- | --- |
@@ -244,7 +244,7 @@ To style the parts (a quieter currency, smaller decimals, faint separators), pas
   classNames={{ currency: 'price-currency', fraction: 'price-cents', decimal: 'price-cents', group: 'price-group' }} />
 ```
 
-The native text is then split into a span per part, still one selectable, accessible label, and the rolling copies carry the same classes, so the styles hold during the roll. Without `classNames` it stays a single text node.
+The native text is then split into a span per part, still one selectable, accessible label, and the rolling copies carry the same classes, so the styles hold during the roll. Keep the parts on the baseline (size, weight, colour, margins): each digit rolls through a window the height of the line, so a part raised or lowered with `vertical-align` is cut off while it moves. Give large numbers some line height for the same reason. Without `classNames` it stays a single text node.
 
 `className`, HTML and ARIA attributes and a forwarded ref are supported, and the label is measured on the same changes as `DetentText`, and when `classNames` change. A number with right-to-left or bidirectional marks in its formatting (Arabic locales, for example) updates natively without rolling. Numbers with more than 160 formatted tokens also update natively, keeping the temporary DOM bounded. Pass an explicit `locales` value when server rendering so the server and browser use the same format. Format the value you show, not a running counter: each change rolls from where the digits are.
 
