@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Types for `@hayderkg/detent/text`, `/number` and `/feedback` resolve under TypeScript's older `node10`
+  module resolution too (CommonJS projects, older Jest setups), through `typesVersions`. No code changes.
+
 ## 0.1.0
 
 The first release, published as `@hayderkg/detent`. Pre-1.0: the API may still change between minor versions.
