@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.2
+
+- Number freezes and clips each departing column's visible slice, avoiding both a rewind of unfinished rolls
+  and the return of previous wheel rows on sequences such as `9,999 → 10,000 → 9`.
+
+- Text pins the animated parts to an explicit origin, preserving alignment inside centered buttons. Deleted
+  text runs and removed number columns follow a shared surviving neighbour during contraction, so they keep
+  their spacing instead of folding into retained letters or digits (including `10,000 → 9`).
+
+- Text recovers fractional glyph positions when WebKit rounds Range measurements, avoiding small placement
+  changes when the native label hands off to its animated graphemes.
+
+- Detent Text paints isolated graphemes in fixed windows: outgoing labels no longer show neighbouring glyph
+  fragments, and incoming letters roll in whole instead of being revealed sideways by the layout spring.
+- Detent Number also keeps its glyph windows independent of layout width, preserving wide intermediate digits
+  with proportional figures and letting new columns and symbols enter without horizontal slicing.
+
 ## 0.1.1
 
 - Types for `@hayderkg/detent/text`, `/number` and `/feedback` resolve under TypeScript's older `node10`

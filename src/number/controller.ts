@@ -1,12 +1,14 @@
-import { measure, type Layout, type Piece } from '../text/layout'
-import { axis, fadeWindow, move, roll, sample, type Axis, type RollOptions } from '../text/roll'
+import { measureWhole as measure, type Layout, type Piece } from '../text/layout'
+import { axis, exitTargets, fadeWindow, move, roll, sample, type Axis, type RollOptions } from '../text/roll'
 import type { Token } from './tokens'
 
 /** `snapshot`: the native text as it was measured, with its part spans and their classes, for the visual copies. */
 type NumberLayout = Layout & { tokens: Token[]; snapshot: HTMLElement }
 type Cell = {
+  follow?: Cell
+  exit?: HTMLElement
   node: HTMLElement; inner: HTMLElement; wheel: boolean; leaving: boolean
-  x: Axis; width: Axis; y: Axis
+  x: Axis; y: Axis
   /**
    * Wheel position in px, one row height per digit: 7h shows a 7, 12h a 2. Unbounded, so a roll can pass through
    * every digit between. Pixels, like every other axis, so the springs' rest thresholds mean the same thing.
@@ -53,11 +55,13 @@ export function numberController(root: HTMLElement, content: HTMLElement, layer:
 
   /** Entries for every digit the wheel shows on its way, and none it no longer will. */
   function place(cell: Cell, l: NumberLayout, piece: Piece) {
-    // Keep the native baseline; the shared mask hides neighbouring digits outside the line and softens its edges.
-    const pad = fadeWindow(cell.node, l)
-    // Pin the rolling column to the cell's left edge. Left unset, an absolute box sits at its static position, which
-    // an inherited text-align (a centred or right-aligned label) moves: the copies would land beside their window.
-    cell.inner.style.left = '0'
+    // Fixed glyph window, independent of the root's animated layout width. Side room keeps wide intermediate
+    // digits intact in proportional fonts, even when the target digit is narrow or a new column is entering.
+    const padX = l.height / 2
+    cell.node.style.width = `${piece.width + 2 * padX}px`
+    const pad = fadeWindow(cell.node, { ...l, left: l.left - padX })
+    // Pin the column explicitly: inherited text-align must not move an absolute box's static position.
+    cell.inner.style.left = `${padX}px`
     cell.inner.style.top = `${pad}px`
     // A new font size keeps the wheel on the same digit, moving at the same rate.
     const scale = l.height / cell.height || 1
@@ -76,8 +80,8 @@ export function numberController(root: HTMLElement, content: HTMLElement, layer:
   }
   function draw(cell: Cell) {
     cell.node.style.transform = `translateX(${cell.x.x}px)`
-    cell.node.style.width = `${Math.max(0, cell.width.x)}px`
-    cell.inner.style.transform = `translateY(${cell.y.x - cell.pos.x}px)`
+    if (cell.exit) cell.exit.style.transform = `translateY(${cell.y.x}px)`
+    cell.inner.style.transform = `translateY(${(cell.exit ? 0 : cell.y.x) - cell.pos.x}px)`
   }
   function make(token: Token, piece: Piece, l: NumberLayout, entering: boolean): Cell {
     const node = document.createElement('span'), inner = document.createElement('span')
@@ -87,7 +91,7 @@ export function numberController(root: HTMLElement, content: HTMLElement, layer:
     node.append(inner); layer.append(node)
     const wheel = token.digit >= 0
     // A new symbol or digit rolls in with the number's trend: from below when it grows.
-    const cell: Cell = { node, inner, wheel, leaving: false, x: axis(piece.left), width: axis(entering ? 0 : piece.width),
+    const cell: Cell = { node, inner, wheel, leaving: false, x: axis(piece.left),
       y: axis(entering ? l.height * (trend < 0 ? -1 : 1) : 0), pos: axis(wheel ? token.digit * l.height : 0), target: token.digit,
       height: l.height }
     place(cell, l, piece); draw(cell)
@@ -96,9 +100,7 @@ export function numberController(root: HTMLElement, content: HTMLElement, layer:
 
   const controller = roll<NumberLayout, RollOptions>(root, content, layer, {
     measure(text) {
-      const l = measure(root, content, text) as NumberLayout
-      l.tokens = tokens
-      l.snapshot = content.cloneNode(true) as HTMLElement
+      const l: NumberLayout = Object.assign(measure(root, content, text), { tokens, snapshot: content.cloneNode(true) as HTMLElement })
       // One range per token, wherever its characters are (a single text node, or the part spans of `classNames`).
       // No ligature merging: digits are never joined, and the copies place every glyph exactly anyway.
       if (l.safe && text && content.firstChild) {
@@ -124,9 +126,18 @@ export function numberController(root: HTMLElement, content: HTMLElement, layer:
       let duration = 0
       const go = (a: Axis, to: number) => { duration = Math.max(duration, move(a, to, o)) }
       const nextCells = new Map<string, Cell>()
+      const targets = new Map(next.tokens.flatMap((token, i) => {
+        const cell = cells.get(token.key)
+        return cell ? [[cell, next.pieces[i]!.left] as const] : []
+      }))
+      const exit = exitTargets([...cells.values()].filter(cell => !cell.leaving), targets)
       next.tokens.forEach((token, i) => {
         const piece = next.pieces[i]!
         const cell = cells.get(token.key) ?? make(token, piece, next, true)
+        if (cell.exit) {
+          cell.y.x += parseFloat(cell.inner.style.top) - cell.height / 8
+          cell.exit.replaceWith(cell.inner); cell.exit = undefined
+        }
         cell.leaving = false
         if (cell.wheel) {
           // Retarget from the visible turn, not the last destination: rapid updates must not queue whole revolutions.
@@ -140,14 +151,25 @@ export function numberController(root: HTMLElement, content: HTMLElement, layer:
         }
         place(cell, next, piece)
         if (cell.wheel) go(cell.pos, cell.target * next.height)
-        go(cell.x, piece.left); go(cell.width, piece.width); go(cell.y, 0)
+        go(cell.x, piece.left); go(cell.y, 0)
         nextCells.set(token.key, cell)
       })
       for (const [key, cell] of cells) {
         if (nextCells.has(key)) continue
-        if (cell.leaving && cell.width.x <= 0.001) { cell.node.remove(); continue }
+        if (cell.leaving && Math.abs(cell.y.x) >= cell.height) { cell.node.remove(); continue }
+        if (!cell.exit) {
+          // Leave with only the currently visible slice. Moving a whole wheel backwards can bring a previous
+          // row back into view (10,000 → 9 showing 9 999), even if its digit roll has already reached zero.
+          const exit = document.createElement('span')
+          Object.assign(exit.style, { position: 'absolute', inset: '0', overflow: 'hidden', maskImage: 'inherit' })
+          cell.node.append(exit); exit.append(cell.inner); cell.exit = exit
+          cell.pos.motion = undefined; cell.pos.v = 0
+          // A column can be removed while still entering: bake its current offset into the frozen slice.
+          cell.inner.style.top = `${parseFloat(cell.inner.style.top) + cell.y.x}px`
+          cell.y.x = 0
+        }
         cell.leaving = true
-        go(cell.x, cell.x.x); go(cell.width, 0); go(cell.y, next.height * (trend < 0 ? 1 : -1))
+        go(cell.x, exit(cell)); go(cell.y, next.height * (trend < 0 ? 1 : -1))
         nextCells.set(key, cell)
       }
       cells = nextCells
@@ -155,7 +177,7 @@ export function numberController(root: HTMLElement, content: HTMLElement, layer:
     },
     paint(t) {
       for (const cell of cells.values()) {
-        sample(cell.x, t); sample(cell.width, t); sample(cell.y, t); sample(cell.pos, t)
+        sample(cell.x, t); sample(cell.y, t); sample(cell.pos, t)
         draw(cell)
       }
     },

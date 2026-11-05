@@ -1,6 +1,6 @@
 {
   "name": "@hayderkg/detent",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A wheel picker for React that clicks into place.",
   "license": "MIT",
   "repository": {

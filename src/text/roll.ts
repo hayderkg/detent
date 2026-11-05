@@ -44,6 +44,28 @@ export function move(a: Axis, to: number, o: RollOptions): number {
   a.motion = spring(a.x, to, a.v, o.spring, o.snapDuration, 0.001)
   return a.motion.duration
 }
+/** Deleted runs follow one surviving neighbour, so contraction never folds their glyphs onto each other. */
+export function exitTargets<T extends { x: Axis; follow?: T }>(old: readonly T[], targets: Map<T, number>) {
+  let anchor: T | undefined
+  // Prefix deletions follow the first survivor; interior and suffix deletions follow the preceding one.
+  for (let i = old.length - 1; i >= 0; i--) {
+    const part = old[i]!
+    if (targets.has(part)) anchor = part
+    else part.follow = anchor
+  }
+  anchor = undefined
+  for (const part of old) {
+    if (targets.has(part)) { anchor = part; part.follow = undefined }
+    else if (anchor) part.follow = anchor
+  }
+  return (part: T) => {
+    const follow = part.follow, to = follow && targets.get(follow)
+    if (to === undefined) return part.x.x
+    part.x.v = follow!.x.v
+    return part.x.x + to - follow!.x.x
+  }
+}
+
 /** A visual copy of the native text. It sits in the same root, so it inherits the same typography. */
 export function copy(text: string, left: number, top = 0) {
   const node = document.createElement('span')

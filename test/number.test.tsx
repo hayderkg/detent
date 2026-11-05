@@ -86,7 +86,11 @@ const shown = (entry: HTMLElement) => {
   const text = entry.textContent!, left = -parseFloat(entry.style.left)
   return [...text].find((_, i) => Math.abs(extent(text.slice(0, i)) - left) < 0.01)!
 }
-const wheel = (node: HTMLElement) => ([...node.firstElementChild!.children] as HTMLElement[])
+const inner = (node: HTMLElement) => {
+  const child = node.firstElementChild as HTMLElement
+  return child.style.maskImage === 'inherit' ? child.firstElementChild as HTMLElement : child
+}
+const wheel = (node: HTMLElement) => ([...inner(node).children] as HTMLElement[])
   .sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top)).map(shown).join('')
 const keys = (value: number, locales = 'en-US', format: Intl.NumberFormatOptions = {}) => {
   const f = new Intl.NumberFormat(locales, format)
@@ -172,11 +176,12 @@ describe('DetentNumber', () => {
     expect(vi.mocked(HTMLElement.prototype.getBoundingClientRect).mock.calls.length).toBe(reads)
   })
 
-  it('grows a new place in from zero width while the others slide over (99 → 100)', () => {
+  it('opens the layout gap while the new place rolls in whole (99 → 100)', () => {
     const { host, rerender } = render(<DetentNumber value={99} />)
     rerender(<DetentNumber value={100} />)
     expect(cells(host)).toHaveLength(3)
-    const entering = cells(host).find(c => c.style.width === '0px')!
+    const entering = cell(host, '1')
+    expect(parseFloat(entering.style.width)).toBeGreaterThan(8)
     expect(wheel(entering)).toBe('1')
     // The units wheel is the units wheel: it starts at 8px and slides to 16px.
     const unitsWheel = cells(host).find(c => c.style.transform === 'translateX(8px)' && c !== entering)!
@@ -190,12 +195,49 @@ describe('DetentNumber', () => {
     const { host, rerender } = render(<DetentNumber value={-12} format={format} />)
     rerender(<DetentNumber value={12.5} format={format} />)
     expect(cell(host, '-')).toBeTruthy()
-    expect(cell(host, '.').style.width).toBe('0px')
-    expect(cell(host, '5').style.width).toBe('0px')
+    expect(parseFloat(cell(host, '.').style.width)).toBeGreaterThan(0)
+    expect(parseFloat(cell(host, '5').style.width)).toBeGreaterThan(0)
     expect(wheel(cell(host, '1'))).toBe('1')
     advance(5000); settle()
     expect(cells(host)).toHaveLength(0)
     expect(content(host).textContent).toBe('12.5')
+  })
+
+  it('does not squeeze a new digit or an exiting sign through the layout width', () => {
+    const { host, rerender } = render(<DetentNumber value={-9} />)
+    rerender(<DetentNumber value={100} />)
+    const entering = cell(host, '1'), leaving = cell(host, '-')
+    const root = host.querySelector<HTMLElement>('[data-detent-number]')!
+    const layoutWidth = root.style.width
+    const leavingWidth = leaving.style.width
+    const width = entering.style.width
+    expect(parseFloat(width)).toBeGreaterThan(8) // painting includes side room for proportional glyphs
+    for (const ms of [16, 32, 64]) {
+      advance(ms)
+      expect(entering.style.width).toBe(width)
+      expect(leaving.style.width).toBe(leavingWidth)
+    }
+    expect(root.style.width).not.toBe(layoutWidth)
+    settle()
+    expect(content(host).style.opacity).toBe('')
+    expect(cells(host)).toHaveLength(0)
+  })
+
+  it('keeps removed columns separated from the surviving units during 10,000 → 9', () => {
+    const { host, rerender } = render(<DetentNumber value={10000} locales="en-US" />)
+    rerender(<DetentNumber value={9} locales="en-US" />)
+    // The next map starts with the surviving units; the other columns remain until their exit finishes.
+    const [units, ...leaving] = cells(host)
+    expect(leaving.length).toBeGreaterThan(1)
+    const x = (node: HTMLElement) => parseFloat(node.style.transform.slice('translateX('.length))
+    const gaps = leaving.map(c => x(c) - x(units!))
+    for (const ms of [16, 32, 48, 64]) {
+      advance(ms)
+      leaving.forEach((c, i) => expect(x(c) - x(units!)).toBeCloseTo(gaps[i]!, 6))
+    }
+    settle()
+    expect(content(host).textContent).toBe('9')
+    expect(cells(host)).toHaveLength(0)
   })
 
   it('retargets a rolling wheel from where it is drawn, without a jump', () => {
@@ -204,7 +246,7 @@ describe('DetentNumber', () => {
     rerender(<DetentNumber value={5} onAnimationCancel={cancel} />)
     advance(80)
     const node = cell(host, '0')
-    const drawn = node.firstElementChild as HTMLElement
+    const drawn = inner(node)
     const before = drawn.style.transform
     rerender(<DetentNumber value={9} onAnimationCancel={cancel} />)
     expect(cancel).toHaveBeenCalledTimes(1)
@@ -216,6 +258,69 @@ describe('DetentNumber', () => {
     expect(content(host).textContent).toBe('9')
   })
 
+  it.each([16, 80, 160, 320])('does not rewind departing wheels when 9,999 → 10,000 is interrupted after %s ms', ms => {
+    const { host, rerender } = render(<DetentNumber value={9999} locales="en-US" />)
+    rerender(<DetentNumber value={10000} locales="en-US" />)
+    advance(ms)
+    // These three rolling columns disappear on the next update; the rightmost (units) survives.
+    const removed = cells(host).filter(c => c.dataset.detentNumberPart === '9').slice(0, 3)
+    expect(removed).toHaveLength(3)
+    const before = removed.map(c => inner(c).style.transform)
+    rerender(<DetentNumber value={9} locales="en-US" />)
+    expect(removed.map(c => inner(c).style.transform)).toEqual(before)
+    const exits = removed.map(c => inner(c).parentElement!)
+    exits.forEach(exit => {
+      expect(exit.style.overflow).toBe('hidden')
+      expect(exit.style.maskImage).toBe('inherit')
+    })
+    advance(32)
+    expect(removed.map(c => inner(c).style.transform)).toEqual(before)
+    expect(exits.every(exit => exit.style.transform !== 'translateY(0px)')).toBe(true)
+    // Interrupt again while the same historical columns are still leaving.
+    const interrupted = removed.map(c => inner(c).style.transform)
+    rerender(<DetentNumber value={0} locales="en-US" />)
+    expect(removed.map(c => inner(c).style.transform)).toEqual(interrupted)
+    settle()
+    expect(content(host).textContent).toBe('0')
+    expect(cells(host)).toHaveLength(0)
+  })
+
+  it('unwraps a frozen exit when an interrupted contraction restores its decimal place', () => {
+    const { host, rerender } = render(<DetentNumber value={9999} locales="en-US" />)
+    rerender(<DetentNumber value={10000} locales="en-US" />)
+    advance(80)
+    const thousands = cells(host).find(c => c.dataset.detentNumberPart === '9')!
+    rerender(<DetentNumber value={9} locales="en-US" />)
+    expect(inner(thousands).parentElement).not.toBe(thousands)
+    advance(32)
+    rerender(<DetentNumber value={10000} locales="en-US" />)
+    expect(inner(thousands).parentElement).toBe(thousands)
+    settle()
+    expect(content(host).textContent).toBe('10,000')
+    expect(cells(host)).toHaveLength(0)
+  })
+
+  it('preserves the visible offset when a newly entering column leaves and then returns', () => {
+    const { host, rerender } = render(<DetentNumber value={9} locales="en-US" />)
+    rerender(<DetentNumber value={10000} locales="en-US" />)
+    advance(80)
+    const entering = cell(host, '1')
+    const y = (s: string) => parseFloat(s.slice('translateY('.length))
+    const painted = () => {
+      const ink = inner(entering)
+      return parseFloat(ink.style.top) + y(ink.style.transform) + (ink.parentElement === entering ? 0 : y(ink.parentElement!.style.transform))
+    }
+    const before = painted()
+    rerender(<DetentNumber value={9} locales="en-US" />)
+    expect(painted()).toBeCloseTo(before, 6)
+    advance(32)
+    const leaving = painted()
+    rerender(<DetentNumber value={10000} locales="en-US" />)
+    expect(painted()).toBeCloseTo(leaving, 6)
+    settle()
+    expect(content(host).textContent).toBe('10,000')
+  })
+
   it('rolls when the browser rounds glyph positions to whole pixels (WebKit), drawing digits where the text does', () => {
     rounded = true
     scale = 1.37
@@ -223,9 +328,9 @@ describe('DetentNumber', () => {
     rerender(<DetentNumber value={13} />)
     expect(cells(host)).toHaveLength(2)
     const units = cell(host, '2')
-    expect(units.firstElementChild!.children).toHaveLength(2) // 2 and 3
+    expect(inner(units).children).toHaveLength(2) // 2 and 3
     // Cell offset and entry offset cancel: the digit sits at the native text's position, whatever the rounding.
-    const entry = units.firstElementChild!.firstElementChild as HTMLElement
+    const entry = inner(units).firstElementChild as HTMLElement
     expect(parseFloat(units.style.transform.slice('translateX('.length)) + parseFloat(entry.style.left)).toBeCloseTo(0, 5)
   })
 
@@ -240,7 +345,7 @@ describe('DetentNumber', () => {
     // The tenths wheel (5 → 7) is drawn from copies of the styled label, positioned on the 5's own text node.
     const tenths = cell(host, '5')
     expect(wheel(tenths)).toBe('567')
-    const entry = tenths.firstElementChild!.firstElementChild as HTMLElement
+    const entry = inner(tenths).firstElementChild as HTMLElement
     expect(entry.querySelector('.frac')).toBeTruthy()
     expect(entry.querySelector('.cur')!.textContent).toBe('$')
     expect(parseFloat(tenths.style.transform.slice('translateX('.length))).toBe(extent('$1,234.'))
@@ -262,7 +367,7 @@ describe('DetentNumber', () => {
     const { host, rerender } = render(<DetentNumber value={12} classNames={{ integer: 'old-font' }} />)
     rerender(<DetentNumber value={13} classNames={{ integer: 'new-font' }} />)
     for (const c of cells(host)) {
-      for (const entry of c.firstElementChild!.children) {
+      for (const entry of inner(c).children) {
         expect(entry.querySelector('.new-font')).toBeTruthy()
         expect(entry.querySelector('.old-font')).toBeNull()
       }
@@ -275,7 +380,7 @@ describe('DetentNumber', () => {
     advance(80)
     rerender(<DetentNumber value={14} locales="en-US" format={{ numberingSystem: 'fullwide' }} />)
     for (const c of cells(host)) {
-      for (const entry of c.firstElementChild!.children) {
+      for (const entry of inner(c).children) {
         const visible = entry.querySelector<HTMLElement>('span[style*="visibility: visible"]')!
         expect(visible.textContent).toMatch(/^[０-９]$/u)
       }
@@ -285,7 +390,7 @@ describe('DetentNumber', () => {
   it('bounds the pending digit rows during a burst of interrupted updates', () => {
     const { host, rerender } = render(<DetentNumber value={0} />)
     for (let i = 1; i <= 100; i++) rerender(<DetentNumber value={i} />)
-    expect(Math.max(...cells(host).map(c => c.firstElementChild!.children.length))).toBeLessThanOrEqual(12)
+    expect(Math.max(...cells(host).map(c => inner(c).children.length))).toBeLessThanOrEqual(12)
     settle()
     expect(content(host).textContent).toBe('100')
   })
@@ -341,7 +446,7 @@ describe('DetentNumber', () => {
     const { host, rerender } = render(<div style={{ textAlign: 'center' }}><DetentNumber value={50.5} /></div>)
     rerender(<div style={{ textAlign: 'center' }}><DetentNumber value={37.88} /></div>)
     expect(cells(host).length).toBeGreaterThan(0)
-    for (const c of cells(host)) expect((c.firstElementChild as HTMLElement).style.left).toBe('0px')
+    for (const c of cells(host)) expect(inner(c).style.left).toBe(`${height / 2}px`)
   })
 
   it('settles at once with reduced motion or animate={false}', () => {

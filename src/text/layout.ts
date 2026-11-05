@@ -29,10 +29,10 @@ export function align(old: readonly string[], next: readonly string[]): [number 
   return pairs
 }
 
-/** Read complete shaped runs. Adjacent slices reconstruct the exact word, including fractional kerning. */
+/** Native shaped-run metrics, shared by text and number. */
 export type Segment = { text: string; start: number; end: number }
 /** `split` cuts the label into the pieces that move independently; without it the label moves as one. */
-export function measure(root: HTMLElement, content: HTMLElement, text: string, split?: (text: string) => Segment[]): Layout {
+export function measureWhole(root: HTMLElement, content: HTMLElement, text: string) {
   const box = content.getBoundingClientRect(), outer = root.getBoundingClientRect(), cs = getComputedStyle(content)
   // DOMRects include an ancestor's press/hover scale. Resolved CSS dimensions remain in layout pixels.
   const resolvedWidth = parseFloat(cs.width), resolvedHeight = parseFloat(cs.height)
@@ -43,25 +43,48 @@ export function measure(root: HTMLElement, content: HTMLElement, text: string, s
   // Complex directionality and line breaks retain their correct native rendering, without simulated glyph layout.
   const safe = cs.visibility !== 'hidden' && !/[\n\r\t\u0590-\u08ff\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(text) && cs.direction !== 'rtl' && cs.writingMode !== 'vertical-rl' && cs.writingMode !== 'vertical-lr'
   const whole = text ? [{ text, start: 0, end: text.length, left: 0, width }] : []
-  const layout: Layout = { text, width, height, left: (box.left - outer.left) / scaleX, top: (box.top - outer.top) / scaleY, pieces: whole, safe }
+  return { text, width, height, left: (box.left - outer.left) / scaleX, top: (box.top - outer.top) / scaleY, pieces: whole, safe, box, scaleX }
+}
+
+/** Grapheme geometry is only included in the text entry; numbers have their own decimal-place measurement. */
+export function measure(root: HTMLElement, content: HTMLElement, text: string, split?: (text: string) => Segment[]): Layout {
+  const layout = measureWhole(root, content, text)
+  const { safe, width, box, scaleX } = layout
   if (!safe || !split || !text || text.length > 160 || !content.firstChild) return layout
   const pieces: Piece[] = []
   // One Range for the whole label, moved from piece to piece. A Range per grapheme left thousands alive until
   // garbage collection, and the browser updates every live Range on every DOM mutation: with 20 long labels, each
   // update's own DOM writes became several times slower (13× in WebKit).
   const range = document.createRange()
+  // WebKit rounds Range positions before transforms. A zoomed, out-of-flow copy recovers fractional
+  // advances without changing the public text or its layout. Only use it when native measurements round.
+  range.setStart(content.firstChild, 0)
+  range.setEnd(content.firstChild, 1)
+  const firstWidth = range.getBoundingClientRect().width / scaleX
+  let copy: HTMLElement | undefined, target = content, origin = box, factor = scaleX
+  if (text.length > 1 && Math.abs(firstWidth - Math.round(firstWidth)) < 0.001) {
+    copy = content.cloneNode(true) as HTMLElement
+    Object.assign(copy.style, { position: 'absolute', left: '0', top: '0', visibility: 'hidden', zoom: '64' })
+    root.append(copy)
+    const enlarged = copy.getBoundingClientRect(), size = parseFloat(getComputedStyle(copy).width)
+    // Optical fonts may change their metrics under zoom; don't substitute a different shaped run.
+    if (Math.abs(size - width) < 1 / 32 && enlarged.width > box.width * 2) {
+      target = copy; origin = enlarged; factor = enlarged.width / width
+    }
+  }
   for (const part of split(text)) {
-    range.setStart(content.firstChild, part.start)
-    range.setEnd(content.firstChild, part.end)
+    range.setStart(target.firstChild!, part.start)
+    range.setEnd(target.firstChild!, part.end)
     const rect = range.getBoundingClientRect()
-    const left = (rect.left - box.left) / scaleX, own = rect.width / scaleX
+    const left = (rect.left - origin.left) / factor, own = rect.width / factor
     const prev = pieces[pieces.length - 1]
     // A ligature can give several graphemes the same glyph rectangle. Keep that glyph on one wheel. WebKit rounds
     // range rectangles to whole pixels, so neighbours overlap by up to a pixel: only a real share of the glyph counts.
     if (prev && prev.left + prev.width - left > Math.min(prev.width, own) / 2) {
-      prev.text += part.text; prev.end = part.end; prev.width = Math.max(prev.width, (rect.right - box.left) / scaleX - prev.left)
+      prev.text += part.text; prev.end = part.end; prev.width = Math.max(prev.width, (rect.right - origin.left) / factor - prev.left)
     } else pieces.push({ ...part, left, width: own })
   }
+  copy?.remove()
   pieces.forEach((piece, i) => { piece.width = Math.max(0, (pieces[i + 1]?.left ?? width) - piece.left) })
   layout.pieces = pieces
   return layout

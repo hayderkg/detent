@@ -67,6 +67,8 @@ function advance(ms: number) {
   act(() => work.forEach(cb => cb(now)))
 }
 function content(host: HTMLElement) { return host.querySelector<HTMLElement>('[data-detent-text-content]')! }
+const viewport = (part: HTMLElement) => part.firstElementChild as HTMLElement
+const ink = (part: HTMLElement) => viewport(part).firstElementChild as HTMLElement
 function part(host: HTMLElement, char: string) { return [...host.querySelectorAll<HTMLElement>('[data-detent-text-part]')].find(p => p.dataset.detentTextPart === char)! }
 
 describe('text alignment', () => {
@@ -137,9 +139,10 @@ describe('DetentText', () => {
     const { host, rerender } = render(<DetentText className="a">Wi</DetentText>)
     // Same width and height (no resize to observe), different letter positions: W 0–8, i 8–12 becomes W 0–6, i 6–12.
     rerender(<DetentText className="even">Wi</DetentText>)
-    // The i → o slot starts where the i is now drawn (6), not where the stale layout put it (8).
+    // The departing i starts where the class now draws it (6), not at its stale position (8).
     rerender(<DetentText className="even">Wo</DetentText>)
-    expect(part(host, 'o').style.transform).toBe('translateX(6px)')
+    const departing = [...host.querySelectorAll<HTMLElement>('[data-detent-text-part=""]')].find(p => ink(p).textContent === 'i')!
+    expect(departing.style.transform).toBe('translateX(6px)')
     // Inline style, lang and dir restyle the label too.
     const reads = vi.mocked(Range.prototype.getBoundingClientRect)
     for (const props of [{ style: { letterSpacing: 1 } }, { lang: 'tr' }, { dir: 'rtl' as const }]) {
@@ -169,8 +172,8 @@ describe('DetentText', () => {
     rerender(<DetentText onAnimationComplete={done}>Sending…</DetentText>)
     const s = part(host, 'S')
     expect(s.children).toHaveLength(1)
-    expect((s.firstElementChild as HTMLElement).style.transform).toBe('')
-    expect(part(host, 'i').firstElementChild?.getAttribute('style')).toContain('translateY(20px)')
+    expect(ink(s).style.transform).toBe('')
+    expect(ink(part(host, 'i')).getAttribute('style')).toContain('translateY(20px)')
     expect(frames.size).toBe(1)
     expect(content(host).textContent).toBe('Sending…')
     expect(content(host).style.opacity).toBe('0')
@@ -187,21 +190,21 @@ describe('DetentText', () => {
     const { host, rerender } = render(label('play'))
     rerender(label('replay'))
     const p = part(host, 'p')
-    expect(p.style.top).toBe('-2.5px')
-    expect(p.style.height).toBe('25px')
+    expect(viewport(p).style.top).toBe('-2.5px')
+    expect(viewport(p).style.height).toBe('25px')
     // The extended margins are fully transparent; only the innermost 1/32 of the line fades.
-    expect(p.style.maskImage).toContain('transparent 2.5px')
-    expect(p.style.maskImage).toContain('#000 3.125px')
-    expect(p.style.maskImage).toContain('transparent calc(100% - 2.5px)')
-    expect((p.firstElementChild as HTMLElement).style.top).toBe('2.5px')
-    expect((p.firstElementChild as HTMLElement).style.transform).toBe('')
-    const incoming = part(host, 'r').firstElementChild as HTMLElement
+    expect(viewport(p).style.maskImage).toContain('transparent 2.5px')
+    expect(viewport(p).style.maskImage).toContain('#000 3.125px')
+    expect(viewport(p).style.maskImage).toContain('transparent calc(100% - 2.5px)')
+    expect(ink(p).style.top).toBe('2.5px')
+    expect(ink(p).style.transform).toBe('')
+    const incoming = ink(part(host, 'r'))
     // Each roll advances one native line, just like a number wheel; the shared fade reaches just inside that line.
     expect(incoming.style.transform).toBe(`translateY(${rollDirection === 'up' ? 20 : -20}px)`)
     advance(80)
     rerender(label('replayed'))
     expect(part(host, 'p')).toBe(p)
-    expect((p.firstElementChild as HTMLElement).style.transform).toBe('')
+    expect(ink(p).style.transform).toBe('')
     advance(600)
     expect(content(host).textContent).toBe('replayed')
     expect(content(host).style.opacity).toBe('')
@@ -210,8 +213,8 @@ describe('DetentText', () => {
     rerender(label('café gy', false))
     rerender(label('déjà joué', false))
     const whole = host.querySelector<HTMLElement>('[data-detent-text-part]')!
-    expect(whole.style.maskImage).toContain('linear-gradient')
-    expect(whole.style.height).toBe('25px')
+    expect(viewport(whole).style.maskImage).toContain('linear-gradient')
+    expect(viewport(whole).style.height).toBe('25px')
     advance(600)
     expect(content(host).textContent).toBe('déjà joué')
     expect(content(host).style.opacity).toBe('')
@@ -273,6 +276,73 @@ describe('DetentText', () => {
       expect(host.querySelector<HTMLElement>('[data-detent-text-layer]')!.style.translate).toBe('')
       for (const r of roots.splice(0)) act(() => r.unmount())
       vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(plain)
+    }
+  })
+
+  it.each(['up', 'down'] as const)('keeps old and new glyph windows whole and hides neighbouring ink (%s)', rollDirection => {
+    const label = (text: string) => <DetentText rollDirection={rollDirection}>{text}</DetentText>
+    const { host, rerender } = render(label('iii'))
+    rerender(label('WWW'))
+    const slot = part(host, 'W')
+    const windows = [...slot.children] as HTMLElement[]
+    expect(windows).toHaveLength(2)
+    // The old i and the wider W keep independent painting extents, including overhang room.
+    const widths = windows.map(w => w.style.width)
+    expect(widths).toEqual(['24px', '28px'])
+    expect(slot.style.overflow).not.toBe('hidden')
+    for (const [i, w] of windows.entries()) {
+      const copy = w.firstElementChild as HTMLElement
+      expect(copy.textContent).toBe(i ? 'W' : 'i')
+      expect(copy.style.left).toBe('10px')
+    }
+    const reads = vi.mocked(Range.prototype.getBoundingClientRect).mock.calls.length
+    for (const ms of [16, 32, 48]) {
+      advance(ms)
+      expect(windows.map(w => w.style.width)).toEqual(widths)
+    }
+    // Moving a glyph never measures it again.
+    expect(vi.mocked(Range.prototype.getBoundingClientRect).mock.calls.length).toBe(reads)
+    advance(1000)
+    expect(host.querySelector('[data-detent-text-part]')).toBeNull()
+    expect(content(host).style.opacity).toBe('')
+  })
+
+  it.each(['up', 'down'] as const)('keeps a deleted interior run spaced during centered contraction (%s)', rollDirection => {
+    const plain = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('centered')) {
+        const w = this.style.width ? parseFloat(this.style.width) : extent(content(this).textContent ?? '')
+        return new DOMRect(200 - w / 2, 0, w, 20)
+      }
+      return plain.call(this)
+    })
+    const label = (text: string) => <DetentText className="centered" rollDirection={rollDirection}>{text}</DetentText>
+    const { host, rerender } = render(label('Hello, paraceta'))
+    rerender(label('Hello, parse'))
+    const outgoing = [...host.querySelectorAll<HTMLElement>('[data-detent-text-part=""]')]
+    const x = (node: HTMLElement) => parseFloat(node.style.transform.slice('translateX('.length))
+    const c = outgoing.find(p => ink(p).textContent === 'c')!
+    const a = outgoing.filter(p => ink(p).textContent === 'a' && x(p) < x(c)).sort((a, b) => x(b) - x(a))[0]!
+    const gap = x(c) - x(a)
+    expect(gap).toBeGreaterThan(0)
+    for (const ms of [16, 32, 48]) {
+      advance(ms)
+      expect(x(c) - x(a)).toBeCloseTo(gap, 6)
+    }
+    advance(1000)
+    expect(content(host).textContent).toBe('Hello, parse')
+  })
+
+  it('keeps wide substituted glyphs apart in left-aligned WWW → iii', () => {
+    const { host, rerender } = render(<DetentText>WWW</DetentText>)
+    rerender(<DetentText>iii</DetentText>)
+    const slots = [...host.querySelectorAll<HTMLElement>('[data-detent-text-part]')]
+      .filter(p => [...p.children].some(w => w.firstElementChild?.textContent === 'W'))
+    const x = (node: HTMLElement) => parseFloat(node.style.transform.slice('translateX('.length))
+    const gaps = slots.map(p => x(p) - x(slots[0]!))
+    for (const ms of [16, 32, 48]) {
+      advance(ms)
+      slots.forEach((p, i) => expect(x(p) - x(slots[0]!)).toBeCloseTo(gaps[i]!, 6))
     }
   })
 

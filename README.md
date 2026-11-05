@@ -82,9 +82,9 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 | `<Detent>` (styled component: core + every visual prop + indicator + every preset) | 17.84 kB |
 | `createEngine` (physics + engine, no React) | 4.54 kB |
 | `@hayderkg/detent/feedback` (haptics, tick sound) | 0.77 kB |
-| `@hayderkg/detent/text` (`DetentText`) | 4.21 kB |
-| `@hayderkg/detent/number` (`DetentNumber`) | 4.66 kB |
-| `@hayderkg/detent/text` and `@hayderkg/detent/number` together | 7.41 kB |
+| `@hayderkg/detent/text` (`DetentText`) | 4.43 kB |
+| `@hayderkg/detent/number` (`DetentNumber`) | 4.77 kB |
+| `@hayderkg/detent/text` and `@hayderkg/detent/number` together | 7.83 kB |
 
 With `useDetent` and `createEngine`, presets other than the default are tree-shaken unless you import `presets`. `<Detent>` accepts preset names as strings, so it includes them all.
 
@@ -169,7 +169,7 @@ Both effects are off by default and disable themselves with reduced motion, incl
 
 - **Native text at rest.** The server renders the real text. While a change rolls, a visual copy is drawn over it and the text underneath stays in the DOM, so screen readers, selection and hydration only ever see plain text.
 - **No list of values.** Pass the current string or number. Changes are matched grapheme by grapheme (emoji and combining marks stay whole), so `Send` → `Sending…` keeps `Send` and rolls the rest.
-- **Separate and small.** `@hayderkg/detent/text` is its own entry point, about 4.2 kB gzipped: importing `@hayderkg/detent` does not include it, and it does not include the wheel.
+- **Separate and small.** `@hayderkg/detent/text` is its own entry point, about 4.4 kB gzipped: importing `@hayderkg/detent` does not include it, and it does not include the wheel.
 - **Interruptible.** A new label mid-roll continues from where each letter is, at its speed, with no jump.
 
 It mounts no picker, attaches no gesture handlers and runs no React renders per frame.
@@ -221,7 +221,7 @@ import { DetentNumber } from '@hayderkg/detent/number'
 - **Digits roll by place.** Up when the value grows, down when it shrinks (`trend`); a digit going from 7 to 2 passes 8, 9, 0 and 1. New places grow in from zero width and the rest slide over; signs, separators and symbols enter and leave.
 - **Only what is shown moves.** Values that format the same (1.001 and 1.002 with one decimal) do not animate.
 - **Native text at rest**, server rendered, with `font-variant-numeric: tabular-nums` by default. While it rolls, an `aria-hidden` copy is drawn over the real text.
-- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.7 kB gzipped alone, 7.4 kB together with `@hayderkg/detent/text`.
+- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.8 kB gzipped alone, 7.8 kB together with `@hayderkg/detent/text`.
 
 | Prop | Default | Purpose |
 | --- | --- | --- |
