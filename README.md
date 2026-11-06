@@ -8,6 +8,8 @@ Custom physics (not `scroll-snap`): real inertia, a throw that lands exactly on 
 
 Docs, playground and examples: **[detent.hayder.sh](https://detent.hayder.sh)**.
 
+![detent — a React wheel picker that coasts and lands exactly on a row](./detent-demo.gif)
+
 ## Install
 
 ```sh
