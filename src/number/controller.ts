@@ -141,8 +141,11 @@ export function numberController(root: HTMLElement, content: HTMLElement, layer:
         cell.leaving = false
         if (cell.wheel) {
           // Retarget from the visible turn, not the last destination: rapid updates must not queue whole revolutions.
-          const at = row(cell)
+          const at = row(cell), reached = cell.target
           cell.target = trend > 0 ? Math.ceil(at) : trend < 0 ? Math.floor(at) : Math.round(at)
+          // A spring settling just past its row is still on that row: counting from the next one would send an
+          // unchanged digit round a whole turn (80 → 81 during the tens' overshoot turning 8 through 9, 0… back to 8).
+          if (trend > 0 ? at > reached && at < reached + 1 : trend < 0 && at < reached && at > reached - 1) cell.target = reached
           // Up rolls forward (7 → 2 passes 8, 9, 0, 1), down backward; no trend takes the shorter way.
           let delta = mod(token.digit - mod(cell.target))
           if (trend < 0 && delta) delta -= 10

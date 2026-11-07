@@ -240,6 +240,22 @@ describe('DetentNumber', () => {
     expect(cells(host)).toHaveLength(0)
   })
 
+  it.each([[79, 80, 81], [81, 80, 79]])('keeps an unchanged digit still when %i → %i is interrupted by %i, overshoot included', (a, b, c) => {
+    // The tens' spring settles just past its row; an update then must not count from the next row and send the
+    // unchanged digit round a whole turn.
+    for (const snap of [320, 700]) for (let ms = 16; ms <= 640; ms += 16) {
+      const { host, rerender } = render(<DetentNumber value={a} snapDuration={snap} />)
+      settle()
+      rerender(<DetentNumber value={b} snapDuration={snap} />)
+      advance(ms)
+      rerender(<DetentNumber value={c} snapDuration={snap} />)
+      const tens = cells(host)[0]
+      if (tens) expect(wheel(tens).length, `${snap} ms roll, interrupted at ${ms} ms`).toBeLessThanOrEqual(2)
+      settle()
+      expect(content(host).textContent).toBe(String(c))
+    }
+  })
+
   it('retargets a rolling wheel from where it is drawn, without a jump', () => {
     const cancel = vi.fn()
     const { host, rerender } = render(<DetentNumber value={0} onAnimationCancel={cancel} />)

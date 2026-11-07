@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- Number keeps an unchanged digit still when an update lands while its wheel settles just past its row: the tens
+  no longer spin a whole turn on `80 → 81` arriving during the `79 → 80` overshoot (values that change quickly,
+  like a readout following a dial).
+
 ## 0.1.2
 
 - Number freezes and clips each departing column's visible slice, avoiding both a rewind of unfinished rolls

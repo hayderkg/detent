@@ -83,8 +83,8 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 | `createEngine` (physics + engine, no React) | 4.54 kB |
 | `@hayderkg/detent/feedback` (haptics, tick sound) | 0.77 kB |
 | `@hayderkg/detent/text` (`DetentText`) | 4.43 kB |
-| `@hayderkg/detent/number` (`DetentNumber`) | 4.77 kB |
-| `@hayderkg/detent/text` and `@hayderkg/detent/number` together | 7.83 kB |
+| `@hayderkg/detent/number` (`DetentNumber`) | 4.8 kB |
+| `@hayderkg/detent/text` and `@hayderkg/detent/number` together | 7.86 kB |
 
 With `useDetent` and `createEngine`, presets other than the default are tree-shaken unless you import `presets`. `<Detent>` accepts preset names as strings, so it includes them all.
 
@@ -221,7 +221,7 @@ import { DetentNumber } from '@hayderkg/detent/number'
 - **Digits roll by place.** Up when the value grows, down when it shrinks (`trend`); a digit going from 7 to 2 passes 8, 9, 0 and 1. New places grow in from zero width and the rest slide over; signs, separators and symbols enter and leave.
 - **Only what is shown moves.** Values that format the same (1.001 and 1.002 with one decimal) do not animate.
 - **Native text at rest**, server rendered, with `font-variant-numeric: tabular-nums` by default. While it rolls, an `aria-hidden` copy is drawn over the real text.
-- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.8 kB gzipped alone, 7.8 kB together with `@hayderkg/detent/text`.
+- **Interruptible**, with reduced motion respected, like `DetentText`, with which it shares its frame loop and springs: about 4.8 kB gzipped alone, 7.9 kB together with `@hayderkg/detent/text`.
 
 | Prop | Default | Purpose |
 | --- | --- | --- |
