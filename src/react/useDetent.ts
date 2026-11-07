@@ -27,7 +27,11 @@ export interface DetentOptions<T> extends PhysicsOptions {
   value?: T
   defaultValue?: T
   onChange?: (item: T, index: number) => void
-  /** Fire onChange when the wheel settles (default), or live on every row that crosses the center. */
+  /**
+   * Fire onChange when the wheel settles (default), or live on every row that crosses the center while a hand
+   * turns it (drag, throw, mouse wheel, trackpad). Turns from keys, a tap on a row or a new `value` report only
+   * where they land, so a parent's own value never comes back through the rows on the way.
+   */
   changeOn?: 'settle' | 'tick'
   isDisabled?: (item: T, index: number) => boolean
   /** Row size in px along the scroll axis. */
@@ -71,7 +75,11 @@ export interface DetentOptions<T> extends PhysicsOptions {
   /** Continuous position in rows (float), every frame. */
   onScrollProgress?: (offset: number) => void
   onEndReached?: () => void
-  /** Rows from the end at which onEndReached fires. */
+  /**
+   * Rows from the end at which onEndReached fires, when the wheel moves that near the end (not as it mounts there
+   * or as rows come in): once per list length, and again after `loading` ends without new rows (a failed or empty
+   * load), the next time it moves there.
+   */
   endReachedThreshold?: number
 }
 
@@ -277,7 +285,9 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
       // allowed) renders normally.
       moving() ? flushSync(update) : update()
     }
-    if (!loop && o.onEndReached && n && c >= n - 1 - (o.endReachedThreshold ?? 5) && endFor !== n) {
+    // Only when the wheel moves near the end: not as it mounts there, nor as rows come in while it rests there
+    // (rows inserted above the centered one keep it near the end, and it would ask for page after page).
+    if (!committing && !loop && o.onEndReached && n && c >= n - 1 - (o.endReachedThreshold ?? 5) && endFor !== n) {
       endFor = n
       o.onEndReached()
     }
@@ -299,7 +309,7 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
     const i = itemAt(L, j)
     if (i < 0) return
     o.onTick?.(i, v)
-    if (o.changeOn === 'tick' && enabled(L, j)) emit(i)
+    if (o.changeOn === 'tick' && engine.byHand && enabled(L, j)) emit(i)
   }
 
   function onSettle(j: number) {
@@ -352,6 +362,9 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
       if (r !== rtl) (rtl = r), (redraw = true), update()
     }
     engine.set(engineOptions()) // a new row size rescales positions: the same rows stay centered
+    // A load that ended without new rows (it failed, or a page came back empty): ask again the next time the wheel
+    // nears its end, or it would stay stuck there for good.
+    if (prev.o.loading && !o.loading && n === prev.n) endFor = -1
     if (prev.keys !== keys) {
       const ci = loop ? mod(engine.index, prev.keys.length || 1) : engine.index
       if (ci >= 0 && ci < prev.keys.length) {
@@ -476,7 +489,8 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
         tabIndex: o.disabled ? -1 : 0,
         'aria-label': o.label,
         'aria-orientation': vertical ? 'vertical' : 'horizontal',
-        'aria-activedescendant': n || head ? optionId(rest) : undefined,
+        // Only an option: resting on the header or footer (not options) leaves the listbox itself active.
+        'aria-activedescendant': itemAt(S, rest) >= 0 ? optionId(rest) : undefined,
         'aria-disabled': o.disabled || undefined,
         'data-detent': '',
         'data-state': 'idle',
@@ -502,8 +516,10 @@ function controller<T>(init: DetentOptions<T>, id: string, update: () => void) {
         children: announce,
       }),
       rows,
-      header: head && shows(-1) ? slot(-1, 'option') : null,
-      footer: shows(footAt) ? slot(footAt, 'option') : null,
+      // Rows the wheel can rest on but never selects (a search field, a 'load more' button): not options, so a
+      // screen reader never hears them announced as selected, and their controls aren't nested in an option.
+      header: head && shows(-1) ? slot(-1, 'presentation') : null,
+      footer: shows(footAt) ? slot(footAt, 'presentation') : null,
       loadingRow: shows(loadAt) ? slot(loadAt, 'presentation', { 'aria-busy': true }) : null,
       selectedIndex,
       selectedItem: selectedIndex >= 0 ? o.items[selectedIndex] : undefined,

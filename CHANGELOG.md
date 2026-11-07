@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.4
+
+- `changeOn="tick"` reports every row live only while a hand turns the wheel (drag, throw, mouse wheel, trackpad).
+  Turns from keys, a tap on a row, `scrollTo` or a new `value` report only where they land, so a parent's own
+  value no longer comes back through `onChange` with every row on the way. The engine exposes it as `byHand`.
+- Header and footer rows are no longer options (`role="presentation"`): a screen reader never hears a row that
+  can't be selected announced as selected, and their controls (a search field, a button) aren't nested in an
+  option. While the wheel rests on one, `aria-activedescendant` is unset.
+- `onEndReached` fires only when the wheel moves near the end: not as it mounts there, nor as rows come in while it
+  rests there (rows inserted above the centered one kept it near the end, so it asked for page after page). After
+  a load that ends without new rows (`loading` back to false, same length), it asks again the next time the wheel
+  moves near the end, instead of never.
+
 ## 0.1.3
 
 - Number keeps an unchanged digit still when an update lands while its wheel settles just past its row: the tens

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, startTransition, Suspense, useEffect, useLayoutEffect, version, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Detent, useDetent, type DetentApi, type DetentOptions } from '../src'
 import { refractionMap } from '../src/react/refraction'
 
@@ -217,6 +217,159 @@ describe('options that change after mount', () => {
     expect(out.api!.rows.map((r) => r.key)).toContain(1)
     rerender(<Probe options={{ items: people, label: 'People', getKey: (p) => p.name }} out={out} />)
     expect(out.api!.rows.map((r) => r.key)).toContain('Ada')
+  })
+})
+
+describe("changeOn 'tick'", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance', 'setTimeout', 'clearTimeout'] })
+  })
+  afterEach(() => vi.useRealTimers())
+  const run = () => act(() => { for (let i = 0; i < 240; i++) vi.advanceTimersByTime(1000 / 60) })
+  const at = (type: string, y: number, t: number) => {
+    const e = new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, pointerType: 'touch', clientX: 10, clientY: y, buttons: type === 'pointerup' ? 0 : 1 })
+    Object.defineProperty(e, 'timeStamp', { value: t })
+    return e
+  }
+
+  it('reports every row a hand turns past, live', () => {
+    const out: { api?: DetentApi<string> } = {}
+    const seen: string[] = []
+    render(<Probe options={{ items: letters, label: 'Letters', itemSize: 36, changeOn: 'tick', onChange: (v) => seen.push(v) }} out={out} />)
+    const root = document.querySelector<HTMLElement>('[role=listbox]')!
+    act(() => {
+      root.dispatchEvent(at('pointerdown', 300, 0))
+      for (let k = 1; k <= 12; k++) window.dispatchEvent(at('pointermove', 300 - k * 9, k * 16))
+    })
+    // Three rows up while the finger is still down: each was reported as it crossed the center.
+    expect(seen).toEqual(['B', 'C', 'D'])
+    act(() => window.dispatchEvent(at('pointerup', 192, 400)))
+    run()
+  })
+
+  it("turns from a new value, keys or scrollTo report only where they land, not the rows on the way", () => {
+    const out: { api?: DetentApi<string> } = {}
+    const seen: string[] = []
+    const opts = (value: string) => ({ items: letters, label: 'Letters', itemSize: 36, changeOn: 'tick' as const, value, onChange: (v: string) => seen.push(v) })
+    const { rerender } = render(<Probe options={opts('A')} out={out} />)
+    // The parent's own value: it turns there, and nothing comes back through onChange.
+    rerender(<Probe options={opts('F')} out={out} />)
+    run()
+    expect(out.api!.engine.index).toBe(5)
+    expect(seen).toEqual([])
+    // scrollTo: only the destination.
+    act(() => out.api!.scrollTo(1))
+    run()
+    expect(seen).toEqual(['B'])
+    // Home from a key: only the destination.
+    act(() => out.api!.scrollTo(6, { animate: false }))
+    seen.length = 0
+    const root = document.querySelector<HTMLElement>('[role=listbox]')!
+    act(() => root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })))
+    run()
+    expect(seen).toEqual(['A'])
+  })
+})
+
+describe('a tap on a row off the center', () => {
+  it('on the header, turns the wheel to it and lets no click through to its button', () => {
+    // Rows laid out by index (happy-dom has no layout): each 36px tall, row 0's center at y=100.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const i = Number(this.dataset.detentIndex ?? 0)
+      return { left: 0, width: 200, top: 82 + i * 36, height: 36, right: 200, bottom: 118 + i * 36, x: 0, y: 82 + i * 36, toJSON: () => ({}) } as DOMRect
+    })
+    let api: DetentApi<string> | undefined
+    const clicked = vi.fn()
+    function Wheel() {
+      const d = (api = useDetent({ items: letters, label: 'Letters', header: true, itemSize: 36, animate: false }))
+      return (
+        <div {...d.getRootProps()}>
+          <div {...d.getTrackProps()}>
+            {d.header && <div {...d.header.getProps()}><button type="button" onClick={clicked}>Search</button></div>}
+            {d.rows.map((r) => <div key={r.key} {...r.getProps()}>{String(r.item)}</div>)}
+          </div>
+        </div>
+      )
+    }
+    render(<Wheel />)
+    const button = document.querySelector('button')!
+    const tap = (type: string, t: number) => {
+      const e = new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, pointerType: 'touch', clientX: 100, clientY: 64, buttons: type === 'pointerup' ? 0 : 1 })
+      Object.defineProperty(e, 'timeStamp', { value: t })
+      return e
+    }
+    // The wheel rests on row 0; the header is the row above it. A tap there: down, up, and the browser's click.
+    act(() => {
+      button.dispatchEvent(tap('pointerdown', 10))
+      window.dispatchEvent(tap('pointerup', 60))
+      const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+      Object.defineProperty(click, 'timeStamp', { value: 70 })
+      button.dispatchEvent(click)
+    })
+    expect(api!.engine.target).toBe(-1) // turned to the header
+    expect(clicked).not.toHaveBeenCalled() // and the click was the wheel's, not the button's
+  })
+})
+
+describe('onEndReached', () => {
+  it('asks only when the wheel moves near the end: not on mount there, nor as rows come in while it rests', () => {
+    const asked = vi.fn()
+    const out: { api?: DetentApi<string> } = {}
+    // Mounted on the last letter, within the threshold.
+    const opts = (items: string[]) => ({ items, label: 'Letters', animate: false, endReachedThreshold: 2, onEndReached: asked, defaultValue: 'H' })
+    const { rerender } = render(<Probe options={opts(letters)} out={out} />)
+    expect(asked).not.toHaveBeenCalled()
+    // Rows inserted above the centered one: it stays near the end, and nothing is asked.
+    rerender(<Probe options={opts(['0', '1', ...letters])} out={out} />)
+    rerender(<Probe options={opts(['00', '0', '1', ...letters])} out={out} />)
+    expect(asked).not.toHaveBeenCalled()
+    // Moved: asked.
+    act(() => out.api!.engine.goTo(out.api!.engine.index - 1, false))
+    expect(asked).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks again after a load that brought no rows, the next time the wheel nears the end', () => {
+    const asked = vi.fn()
+    const out: { api?: DetentApi<string> } = {}
+    const opts = (loading: boolean) => ({ items: letters, label: 'Letters', animate: false, endReachedThreshold: 2, onEndReached: asked, loading })
+    const { rerender } = render(<Probe options={opts(false)} out={out} />)
+    act(() => out.api!.engine.goTo(6, false))
+    expect(asked).toHaveBeenCalledTimes(1)
+    act(() => out.api!.engine.goTo(5, false))
+    expect(asked).toHaveBeenCalledTimes(1) // same length: not again while nothing changed
+    rerender(<Probe options={opts(true)} out={out} />)
+    rerender(<Probe options={opts(false)} out={out} />) // the load ended, with nothing new
+    act(() => out.api!.engine.goTo(6, false))
+    expect(asked).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('header and footer rows', () => {
+  it('are not options: resting on one, nothing is announced as selected', () => {
+    let api: DetentApi<string> | undefined
+    function Wheel() {
+      const d = (api = useDetent({ items: letters, label: 'Letters', header: true, footer: true, animate: false }))
+      return (
+        <div {...d.getRootProps()}>
+          <div {...d.getTrackProps()}>
+            {d.header && <div {...d.header.getProps()}><button type="button">Search</button></div>}
+            {d.rows.map((r) => <div key={r.key} {...r.getProps()}>{String(r.item)}</div>)}
+            {d.footer && <div {...d.footer.getProps()}>More</div>}
+          </div>
+        </div>
+      )
+    }
+    const { host } = render(<Wheel />)
+    const root = host.querySelector<HTMLElement>('[role=listbox]')!
+    const options = () => [...host.querySelectorAll('[role=option]')].map((o) => o.textContent)
+    expect(options()).not.toContain('Search')
+    expect(root.getAttribute('aria-activedescendant')).toBe(host.querySelector('[role=option][aria-selected=true]')!.id)
+    act(() => api!.engine.goTo(-1, false)) // rest on the header
+    const header = [...host.querySelectorAll<HTMLElement>('[data-detent-index]')].find((r) => r.textContent === 'Search')!
+    expect(header.getAttribute('role')).toBe('presentation')
+    expect(header.hasAttribute('aria-selected')).toBe(false)
+    expect(root.hasAttribute('aria-activedescendant')).toBe(false)
+    expect(host.querySelector('[aria-selected=true]')).toBeNull()
   })
 })
 

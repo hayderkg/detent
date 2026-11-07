@@ -77,6 +77,11 @@ export interface Engine {
   readonly target: number
   /** Position (rows) the current motion started from. Progress = (x − from) / (target − from). */
   readonly from: number
+  /**
+   * The current (or last) motion is a hand's: a drag, a throw, a mouse wheel or a trackpad. False when it came
+   * from keys, a tap on a row, or goTo/scrollTo.
+   */
+  readonly byHand: boolean
 }
 
 const IDLE = 80 // ms without wheel events that ends a wheel gesture
@@ -102,6 +107,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
   let target = initialIndex
   let from = initialIndex
   let shown = raw
+  let byHand = false
   let el: HTMLElement | null = null
   let reduced = false
   const tracker = velocityTracker()
@@ -254,6 +260,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     v = 0
     suppress = 0
     if (caught) {
+      byHand = true
       render()
       setMode('drag')
     }
@@ -278,6 +285,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
         el?.setPointerCapture(e.pointerId)
       } catch {}
       el?.setAttribute('data-dragging', '')
+      byHand = true
       setMode('drag')
     }
     raw = startRaw - (axis(e) - start) * (o.dragRatio ?? 1)
@@ -318,6 +326,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     const i = rowAt(e.clientX, e.clientY)
     if (i === i && i !== center() && nearest(i, bounds()) === i) {
       suppress = e.timeStamp + 400
+      byHand = false
       goTo(i)
     }
   }
@@ -383,6 +392,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     wheelAt = e.timeStamp
     if (!ours) return // a vertical trackpad gesture over a horizontal wheel scrolls the page
     e.preventDefault()
+    byHand = true
     // Horizontal deltas follow screen direction (mirrored in RTL); vertical notches mean "next".
     const delta = x ? d * sign() : d
     if (notched) {
@@ -451,6 +461,8 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     const page = Math.max(1, o.visibleCount - 1)
     const b = bounds()
     const k = e.key
+    const was = byHand
+    byHand = false
     const fwd = sign() < 0 ? 'ArrowLeft' : 'ArrowRight'
     const back = sign() < 0 ? 'ArrowRight' : 'ArrowLeft'
     if (k === 'ArrowDown' || (h && k === fwd)) arrow(1, e)
@@ -473,7 +485,7 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
           break
         }
       }
-    } else return
+    } else return void (byHand = was) // not a key of ours: whatever was turning the wheel still is
     e.preventDefault()
     // From a control inside a row: keep focus on the wheel (that row may turn inert off-center).
     if (e.target !== el) el?.focus({ preventScroll: true })
@@ -540,8 +552,14 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
       }
     },
     sync: render,
-    goTo,
-    scrollTo,
+    goTo(index, animate) {
+      byHand = false
+      goTo(index, animate)
+    },
+    scrollTo(item, animate) {
+      byHand = false
+      scrollTo(item, animate)
+    },
     shift,
     get x() {
       return display()
@@ -560,6 +578,9 @@ export function createEngine(initialIndex: number, options: EngineOptions): Engi
     },
     get from() {
       return from
+    },
+    get byHand() {
+      return byHand
     },
   }
 }

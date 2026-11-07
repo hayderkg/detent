@@ -78,9 +78,9 @@ Real numbers, enforced in CI with [size-limit](https://github.com/ai/size-limit)
 
 | Import | Size |
 | --- | --- |
-| `useDetent` (physics + engine + hook) | 7.36 kB |
-| `<Detent>` (styled component: core + every visual prop + indicator + every preset) | 17.84 kB |
-| `createEngine` (physics + engine, no React) | 4.54 kB |
+| `useDetent` (physics + engine + hook) | 7.43 kB |
+| `<Detent>` (styled component: core + every visual prop + indicator + every preset) | 17.92 kB |
+| `createEngine` (physics + engine, no React) | 4.59 kB |
 | `@hayderkg/detent/feedback` (haptics, tick sound) | 0.77 kB |
 | `@hayderkg/detent/text` (`DetentText`) | 4.43 kB |
 | `@hayderkg/detent/number` (`DetentNumber`) | 4.8 kB |
@@ -247,6 +247,10 @@ To style the parts (a quieter currency, smaller decimals, faint separators), pas
 The native text is then split into a span per part, still one selectable, accessible label, and the rolling copies carry the same classes, so the styles hold during the roll. Keep the parts on the baseline (size, weight, colour, margins): each digit rolls through a window the height of the line, so a part raised or lowered with `vertical-align` is cut off while it moves. Give large numbers some line height for the same reason. Without `classNames` it stays a single text node.
 
 `className`, HTML and ARIA attributes and a forwarded ref are supported, and the label is measured on the same changes as `DetentText`, and when `classNames` change. A number with right-to-left or bidirectional marks in its formatting (Arabic locales, for example) updates natively without rolling. Numbers with more than 160 formatted tokens also update natively, keeping the temporary DOM bounded. Pass an explicit `locales` value when server rendering so the server and browser use the same format. Format the value you show, not a running counter: each change rolls from where the digits are.
+
+## Showcase
+
+Built something with Detent? Post it on X with a link to where it's used and mention [@kghayder](https://x.com/kghayder). I'll record a short video of it for the [showcase](https://detent.hayder.sh/showcase).
 
 ## License
 
